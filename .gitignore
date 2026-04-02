@@ -27,3 +27,8 @@ legend_crops/
 symbols_auto/
 
 # Keep templates/ — those are needed for detection
+
+# Training artifacts (large, regeneratable)
+runs/
+yolo_dataset/
+*.jpg
