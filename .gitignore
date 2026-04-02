@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Output (generated files, don't track)
+output/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Blueprint PDFs (large, sensitive project data — don't commit)
+*.pdf
+
+# Large image files from analysis (regeneratable)
+floor_crops/
+legend_crops/
+symbols_auto/
+
+# Keep templates/ — those are needed for detection
