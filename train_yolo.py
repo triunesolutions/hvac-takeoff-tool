@@ -1,6 +1,12 @@
 """
 Prepare YOLO training data from annotated PDFs and train a model.
-Converts human annotations from 'Final' PDFs into YOLO format.
+Reads from organized project folders: projects/{name}/raw/ + labeled/
+
+Usage:
+    python train_yolo.py                    # Train on Flex projects only
+    python train_yolo.py --all              # Train on all projects with annotations
+    python train_yolo.py --projects 01 02 03 04 08  # Train on specific projects
+    python train_yolo.py --resume           # Resume interrupted training
 """
 import sys
 import io
@@ -13,27 +19,31 @@ import numpy as np
 import os
 import shutil
 import yaml
+import argparse
 from pathlib import Path
+from collections import defaultdict
 
-DATA_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\Plans_Specs"
+PROJECTS_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\projects"
 YOLO_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\yolo_dataset"
+OUTPUT_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool"
 DPI = 200
-TILE_SIZE = 640  # YOLO default input size
-TILE_OVERLAP = 160  # Overlap between tiles (pixels)
+TILE_SIZE = 640
+TILE_OVERLAP = 160
 
-# Equipment classes
-CLASSES = [
-    'AD-T-BAR SUPPLY',      # 0 - Square diffuser (with circle-A tag)
-    'AD-T-BAR RETURN',      # 1 - Square grille (with circle-B tag)
-    'AD-SURF SUPPLY',       # 2 - Round diffuser (with circle-C tag)
-    'AD-SURF RETURN',       # 3 - Square return (with circle-D tag)
-    'AD-LINEAR SLOT DIFFUSER',  # 4 - Linear slot
-    'AD-LINEAR PLENUM',     # 5 - Linear plenum
+# Equipment classes — will auto-expand as new types are found
+KNOWN_CLASSES = [
+    'AD-T-BAR SUPPLY',
+    'AD-T-BAR RETURN',
+    'AD-SURF SUPPLY',
+    'AD-SURF RETURN',
+    'AD-LINEAR SLOT DIFFUSER',
+    'AD-LINEAR PLENUM',
+    'LOUVERS',
 ]
-CLASS_MAP = {name: idx for idx, name in enumerate(CLASSES)}
 
 
 def annot_to_display(ax, ay, rotation, mb_w, mb_h):
+    """Convert annotation (mediabox) coords to display coords."""
     if rotation == 270:
         return ay, mb_w - ax
     elif rotation == 90:
@@ -43,62 +53,51 @@ def annot_to_display(ax, ay, rotation, mb_w, mb_h):
     return ax, ay
 
 
-def extract_annotations_as_pixels(pdf_path, page_idx, dpi=DPI):
-    """Extract annotations and convert to pixel coordinates in the rendered image."""
+def extract_annotations(pdf_path):
+    """
+    Extract all polygon annotations from a PDF.
+    Returns dict: page_idx -> list of {class, cx, cy, ...} in display coords.
+    """
     doc = fitz.open(pdf_path)
-    page = doc[page_idx]
-    rotation = page.rotation
-    mb_w, mb_h = page.mediabox.width, page.mediabox.height
-    scale = dpi / 72
+    pages = defaultdict(list)
+    class_set = set()
 
-    annotations = []
-    annots = list(page.annots()) if page.annots() else []
-    for a in annots:
-        if a.type[1] == 'Highlight':
-            continue
-        subject = a.info.get('subject', '').strip()
-        content = a.info.get('content', '').strip()
-        if not subject or not content:
-            continue
-        if subject not in CLASS_MAP:
-            # Skip types we don't train on (e.g., LOUVERS)
-            continue
+    for page_idx in range(doc.page_count):
+        page = doc[page_idx]
+        rotation = page.rotation
+        mb_w, mb_h = page.mediabox.width, page.mediabox.height
 
-        rect = a.rect
-        acx = (rect.x0 + rect.x1) / 2
-        acy = (rect.y0 + rect.y1) / 2
+        for a in page.annots() or []:
+            try:
+                if a.type[1] != 'Polygon':
+                    continue
+            except:
+                continue
 
-        # Convert to display coords
-        dcx, dcy = annot_to_display(acx, acy, rotation, mb_w, mb_h)
+            subject = a.info.get('subject', '').strip()
+            content = a.info.get('content', '').strip()
+            if not subject or not content:
+                continue
 
-        # Convert to pixel coords
-        px_cx = dcx * scale
-        px_cy = dcy * scale
+            rect = a.rect
+            acx = (rect.x0 + rect.x1) / 2
+            acy = (rect.y0 + rect.y1) / 2
+            dcx, dcy = annot_to_display(acx, acy, rotation, mb_w, mb_h)
 
-        # Annotation bounding box is small (just the tag bubble ~22x27 pts)
-        # But the actual equipment symbol is larger — use a bigger bbox
-        # that captures the whole symbol + tag
-        # Equipment symbols are roughly 60x60 pts in display space
-        box_half = 45 * scale  # 45 PDF pts = ~125px at 200dpi
-
-        annotations.append({
-            'class': subject,
-            'class_id': CLASS_MAP[subject],
-            'tag': content,
-            'px_cx': px_cx,
-            'px_cy': px_cy,
-            'px_x1': px_cx - box_half,
-            'px_y1': px_cy - box_half,
-            'px_x2': px_cx + box_half,
-            'px_y2': px_cy + box_half,
-        })
+            class_set.add(subject)
+            pages[page_idx].append({
+                'class': subject,
+                'tag': content,
+                'display_cx': dcx,
+                'display_cy': dcy,
+            })
 
     doc.close()
-    return annotations
+    return pages, class_set
 
 
-def render_page_image(pdf_path, page_idx, dpi=DPI):
-    """Render a page to BGR numpy array."""
+def render_page(pdf_path, page_idx, dpi=DPI):
+    """Render a PDF page to BGR numpy array."""
     doc = fitz.open(pdf_path)
     page = doc[page_idx]
     mat = fitz.Matrix(dpi / 72, dpi / 72)
@@ -112,193 +111,213 @@ def render_page_image(pdf_path, page_idx, dpi=DPI):
     return img
 
 
-def tile_image_with_annotations(img, annotations, tile_size=TILE_SIZE, overlap=TILE_OVERLAP):
+def find_raw_pdf(project_dir, labeled_pdf_name, labeled_page_count):
     """
-    Split a large image into tiles and assign annotations to tiles.
-    Returns list of (tile_image, tile_annotations) tuples.
+    Find the matching raw (unlabeled) PDF for a labeled PDF.
+    For Flex projects: raw PDF is the one without 'Final' in the name.
+    For other projects: raw PDF is in the raw/ folder.
     """
+    raw_dir = os.path.join(project_dir, 'raw')
+    if not os.path.exists(raw_dir):
+        return None
+
+    raw_files = [f for f in os.listdir(raw_dir) if f.endswith('.pdf')]
+    if not raw_files:
+        return None
+
+    # If there's only one raw PDF with same page count, that's it
+    for rf in raw_files:
+        rpath = os.path.join(raw_dir, rf)
+        try:
+            doc = fitz.open(rpath)
+            pc = doc.page_count
+            doc.close()
+            if pc == labeled_page_count:
+                return rpath
+        except:
+            continue
+
+    # Fallback: return the first/largest raw PDF
+    return os.path.join(raw_dir, raw_files[0])
+
+
+def tile_image(img, annotations, class_map, tile_size=TILE_SIZE, overlap=TILE_OVERLAP):
+    """Split image into tiles, assign annotations to each tile."""
     h, w = img.shape[:2]
     step = tile_size - overlap
-    tiles = []
+    scale = DPI / 72
+    box_half = 45 * scale  # symbol bounding box radius in pixels
 
+    tiles = []
     for y_start in range(0, h, step):
         for x_start in range(0, w, step):
             x_end = min(x_start + tile_size, w)
             y_end = min(y_start + tile_size, h)
-            x_start_actual = max(0, x_end - tile_size)
-            y_start_actual = max(0, y_end - tile_size)
+            xs = max(0, x_end - tile_size)
+            ys = max(0, y_end - tile_size)
 
-            tile = img[y_start_actual:y_end, x_start_actual:x_end]
-
-            # Pad if needed
+            tile = img[ys:y_end, xs:x_end]
             if tile.shape[0] < tile_size or tile.shape[1] < tile_size:
                 padded = np.ones((tile_size, tile_size, 3), dtype=np.uint8) * 255
                 padded[:tile.shape[0], :tile.shape[1]] = tile
                 tile = padded
 
-            # Find annotations that fall within this tile
             tile_annots = []
             for ann in annotations:
-                cx = ann['px_cx'] - x_start_actual
-                cy = ann['px_cy'] - y_start_actual
-                bw = ann['px_x2'] - ann['px_x1']
-                bh = ann['px_y2'] - ann['px_y1']
+                px_cx = ann['display_cx'] * scale
+                px_cy = ann['display_cy'] * scale
+                cx = px_cx - xs
+                cy = px_cy - ys
 
-                # Check if center is within tile
                 if 0 <= cx < tile_size and 0 <= cy < tile_size:
-                    # Convert to YOLO format: class cx cy w h (all normalized 0-1)
-                    yolo_cx = cx / tile_size
-                    yolo_cy = cy / tile_size
-                    yolo_w = min(bw / tile_size, 1.0)
-                    yolo_h = min(bh / tile_size, 1.0)
-
-                    # Clamp
-                    yolo_cx = max(0, min(1, yolo_cx))
-                    yolo_cy = max(0, min(1, yolo_cy))
-
+                    cls_name = ann['class']
+                    if cls_name not in class_map:
+                        continue
                     tile_annots.append({
-                        'class_id': ann['class_id'],
-                        'cx': yolo_cx,
-                        'cy': yolo_cy,
-                        'w': yolo_w,
-                        'h': yolo_h,
+                        'class_id': class_map[cls_name],
+                        'cx': max(0, min(1, cx / tile_size)),
+                        'cy': max(0, min(1, cy / tile_size)),
+                        'w': min(box_half * 2 / tile_size, 1.0),
+                        'h': min(box_half * 2 / tile_size, 1.0),
                     })
 
-            tiles.append((tile, tile_annots, x_start_actual, y_start_actual))
+            tiles.append((tile, tile_annots))
 
     return tiles
 
 
-def prepare_dataset():
-    """Convert all annotated PDFs to YOLO training format."""
-    # Clean output directory
+def prepare_dataset(project_ids=None):
+    """Build YOLO dataset from selected projects."""
     if os.path.exists(YOLO_DIR):
         shutil.rmtree(YOLO_DIR)
-
     for split in ['train', 'val']:
         os.makedirs(os.path.join(YOLO_DIR, 'images', split), exist_ok=True)
         os.makedirs(os.path.join(YOLO_DIR, 'labels', split), exist_ok=True)
 
-    # Find all Final PDFs
-    files = os.listdir(DATA_DIR)
-    final_pdfs = sorted([f for f in files if 'Final' in f and f.endswith('.pdf')])
-    print(f"Found {len(final_pdfs)} annotated PDFs")
+    # Discover projects
+    all_projects = sorted(os.listdir(PROJECTS_DIR))
+    if project_ids:
+        projects = [p for p in all_projects if any(p.startswith(pid) for pid in project_ids)]
+    else:
+        projects = all_projects
 
-    # Use 3 for training, 1 for validation
-    train_pdfs = final_pdfs[:3]
-    val_pdfs = final_pdfs[3:]
+    print(f"Projects to process: {len(projects)}")
+    for p in projects:
+        print(f"  {p}")
 
+    # First pass: discover all classes
+    all_classes = set()
+    project_data = []
+
+    for proj_name in projects:
+        proj_dir = os.path.join(PROJECTS_DIR, proj_name)
+        labeled_dir = os.path.join(proj_dir, 'labeled')
+        if not os.path.isdir(labeled_dir):
+            continue
+
+        for f in os.listdir(labeled_dir):
+            if not f.endswith('.pdf'):
+                continue
+            labeled_path = os.path.join(labeled_dir, f)
+            pages, classes = extract_annotations(labeled_path)
+            if not any(pages.values()):
+                continue
+
+            all_classes.update(classes)
+            total = sum(len(v) for v in pages.values())
+            print(f"  {proj_name}: {f[:50]} — {total} annotations, classes: {classes}")
+            project_data.append((proj_name, proj_dir, labeled_path, f, pages))
+
+    # Build class map (keep known order, append new ones)
+    class_list = list(KNOWN_CLASSES)
+    for c in sorted(all_classes):
+        if c not in class_list:
+            class_list.append(c)
+    class_map = {name: idx for idx, name in enumerate(class_list)}
+
+    print(f"\nClasses ({len(class_list)}):")
+    for idx, name in enumerate(class_list):
+        marker = '*' if name in all_classes else ' '
+        print(f"  {idx}: {name} {marker}")
+
+    # Second pass: render, tile, save
+    # Use last project as validation, rest for training
     total_tiles = 0
-    total_annotations = 0
+    total_annots = 0
 
-    for split, pdf_list in [('train', train_pdfs), ('val', val_pdfs)]:
-        for pdf_name in pdf_list:
-            pdf_path = os.path.join(DATA_DIR, pdf_name)
-            name = pdf_name.replace('3.11.26 EAG - 9530 Towne Center Drive ', '').replace(' - Final.pdf', '').replace('- Final.pdf', '')
-            safe_name = name.replace(' ', '_').replace('+', 'plus').replace('(', '').replace(')', '')
+    for pi, (proj_name, proj_dir, labeled_path, labeled_fname, pages) in enumerate(project_data):
+        split = 'val' if pi == len(project_data) - 1 else 'train'
+        safe_name = proj_name.replace(' ', '_')
 
-            print(f"\n[{split}] Processing: {name}")
+        doc = fitz.open(labeled_path)
+        labeled_page_count = doc.page_count
+        doc.close()
 
-            # Find which pages have annotations
-            doc = fitz.open(pdf_path)
-            for page_idx in range(doc.page_count):
-                page = doc[page_idx]
-                annots = list(page.annots()) if page.annots() else []
-                equip_annots = [a for a in annots if a.type[1] != 'Highlight'
-                               and a.info.get('subject', '') in CLASS_MAP]
-                if not equip_annots:
+        # Find raw PDF
+        raw_path = find_raw_pdf(proj_dir, labeled_fname, labeled_page_count)
+
+        for page_idx, annotations in pages.items():
+            if not annotations:
+                continue
+
+            # Render from raw PDF if available, otherwise from labeled
+            render_path = raw_path if raw_path else labeled_path
+            try:
+                img = render_page(render_path, page_idx)
+            except:
+                print(f"  SKIP page {page_idx+1} of {proj_name} — render failed")
+                continue
+
+            tiles = tile_image(img, annotations, class_map)
+
+            saved = 0
+            for ti, (tile_img, tile_annots) in enumerate(tiles):
+                save_empty = (ti % 10 == 0)
+                if not tile_annots and not save_empty:
                     continue
 
-                print(f"  Page {page_idx + 1}: {len(equip_annots)} annotations")
-            doc.close()
+                tile_name = f"{safe_name}_p{page_idx+1}_t{ti:04d}"
+                img_path = os.path.join(YOLO_DIR, 'images', split, f"{tile_name}.png")
+                lbl_path = os.path.join(YOLO_DIR, 'labels', split, f"{tile_name}.txt")
 
-            # For each annotated page, render + tile
-            doc = fitz.open(pdf_path)
-            for page_idx in range(doc.page_count):
-                page = doc[page_idx]
-                annots_check = list(page.annots()) if page.annots() else []
-                equip_count = sum(1 for a in annots_check
-                                 if a.type[1] != 'Highlight'
-                                 and a.info.get('subject', '') in CLASS_MAP)
-                if equip_count == 0:
-                    continue
+                cv2.imwrite(img_path, tile_img)
+                with open(lbl_path, 'w') as f:
+                    for ann in tile_annots:
+                        f.write(f"{ann['class_id']} {ann['cx']:.6f} {ann['cy']:.6f} {ann['w']:.6f} {ann['h']:.6f}\n")
 
-                # Extract annotations
-                annotations = extract_annotations_as_pixels(pdf_path, page_idx)
+                if tile_annots:
+                    saved += 1
+                    total_annots += len(tile_annots)
+                total_tiles += 1
 
-                # Render the UNLABELED version (without annotations)
-                unlabeled_name = pdf_name.replace(' - Final', '').replace('- Final', '')
-                unlabeled_path = os.path.join(DATA_DIR, unlabeled_name)
-                if os.path.exists(unlabeled_path):
-                    img = render_page_image(unlabeled_path, page_idx)
-                else:
-                    img = render_page_image(pdf_path, page_idx)
+            print(f"  [{split}] {proj_name} page {page_idx+1}: {len(annotations)} annots → {saved} labeled tiles")
 
-                print(f"  Rendered page {page_idx+1}: {img.shape[1]}x{img.shape[0]}")
-                print(f"  Annotations: {len(annotations)}")
-
-                # Tile the image
-                tiles = tile_image_with_annotations(img, annotations)
-                print(f"  Tiles generated: {len(tiles)}")
-
-                # Save tiles with annotations
-                tiles_with_labels = 0
-                for ti, (tile_img, tile_annots, tx, ty) in enumerate(tiles):
-                    # Only save tiles that have at least one annotation
-                    # (plus some empty tiles for negative samples)
-                    save_empty = (ti % 8 == 0)  # Keep 1 in 8 empty tiles
-                    if not tile_annots and not save_empty:
-                        continue
-
-                    tile_name = f"{safe_name}_p{page_idx+1}_t{ti:04d}"
-                    img_path = os.path.join(YOLO_DIR, 'images', split, f"{tile_name}.png")
-                    lbl_path = os.path.join(YOLO_DIR, 'labels', split, f"{tile_name}.txt")
-
-                    cv2.imwrite(img_path, tile_img)
-
-                    with open(lbl_path, 'w') as f:
-                        for ann in tile_annots:
-                            f.write(f"{ann['class_id']} {ann['cx']:.6f} {ann['cy']:.6f} {ann['w']:.6f} {ann['h']:.6f}\n")
-
-                    if tile_annots:
-                        tiles_with_labels += 1
-                        total_annotations += len(tile_annots)
-
-                    total_tiles += 1
-
-                print(f"  Tiles with labels: {tiles_with_labels}")
-
-            doc.close()
-
-    # Write YOLO dataset config
+    # Write dataset config
     config = {
         'path': YOLO_DIR,
         'train': 'images/train',
         'val': 'images/val',
-        'names': {i: name for i, name in enumerate(CLASSES)},
+        'names': {i: name for i, name in enumerate(class_list)},
     }
     config_path = os.path.join(YOLO_DIR, 'dataset.yaml')
     with open(config_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
 
+    # Summary
     print(f"\n{'='*60}")
-    print(f"DATASET PREPARED")
+    print(f"DATASET READY")
     print(f"  Total tiles: {total_tiles}")
-    print(f"  Total annotations: {total_annotations}")
+    print(f"  Total annotations: {total_annots}")
+    print(f"  Classes: {len(class_list)}")
+    for split in ['train', 'val']:
+        n = len(os.listdir(os.path.join(YOLO_DIR, 'images', split)))
+        print(f"  {split}: {n} images")
     print(f"  Config: {config_path}")
 
-    # Count per split
-    for split in ['train', 'val']:
-        img_dir = os.path.join(YOLO_DIR, 'images', split)
-        lbl_dir = os.path.join(YOLO_DIR, 'labels', split)
-        n_img = len([f for f in os.listdir(img_dir) if f.endswith('.png')])
-        n_lbl = len([f for f in os.listdir(lbl_dir) if f.endswith('.txt') and os.path.getsize(os.path.join(lbl_dir, f)) > 0])
-        print(f"  {split}: {n_img} images, {n_lbl} with labels")
-
-    return config_path
+    return config_path, class_list
 
 
-def train_model(config_path):
+def train_model(config_path, resume=False):
     """Train YOLOv8 on the prepared dataset."""
     from ultralytics import YOLO
 
@@ -306,27 +325,55 @@ def train_model(config_path):
     print("TRAINING YOLOv8")
     print(f"{'='*60}")
 
-    # Use YOLOv8 nano (smallest, fastest to train)
-    model = YOLO('yolov8n.pt')
+    if resume:
+        weights = os.path.join(OUTPUT_DIR, 'runs', 'detect', 'runs', 'hvac_detect', 'weights', 'last.pt')
+        if os.path.exists(weights):
+            model = YOLO(weights)
+            model.train(resume=True)
+            return
+        else:
+            print(f"No checkpoint found at {weights}, starting fresh")
 
-    results = model.train(
+    model = YOLO('yolov8n.pt')
+    model.train(
         data=config_path,
         epochs=50,
         imgsz=TILE_SIZE,
-        batch=8,
-        patience=10,
-        device='cpu',  # No GPU available
-        workers=0,     # Windows compatibility
-        project=os.path.join(os.path.dirname(YOLO_DIR), 'hvac-takeoff-tool', 'runs'),
-        name='hvac_detect',
+        batch=4,
+        patience=15,
+        device='cpu',
+        workers=0,
+        project=os.path.join(OUTPUT_DIR, 'runs'),
+        name='hvac_v2',
         exist_ok=True,
     )
 
-    print(f"\nTraining complete!")
-    return results
+    # Copy best weights to models/
+    best_src = os.path.join(OUTPUT_DIR, 'runs', 'hvac_v2', 'weights', 'best.pt')
+    if os.path.exists(best_src):
+        os.makedirs(os.path.join(OUTPUT_DIR, 'models'), exist_ok=True)
+        dst = os.path.join(OUTPUT_DIR, 'models', 'hvac_yolov8n_v2.pt')
+        shutil.copy2(best_src, dst)
+        print(f"\nBest model saved: {dst}")
 
 
 if __name__ == "__main__":
-    config_path = prepare_dataset()
-    print("\nDataset ready. Starting training...")
-    train_model(config_path)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--all', action='store_true', help='Train on all projects')
+    parser.add_argument('--projects', nargs='+', help='Project ID prefixes (e.g., 01 02 03)')
+    parser.add_argument('--resume', action='store_true', help='Resume interrupted training')
+    args = parser.parse_args()
+
+    if args.resume:
+        train_model(None, resume=True)
+    else:
+        if args.all:
+            project_ids = None
+        elif args.projects:
+            project_ids = args.projects
+        else:
+            # Default: Flex projects only
+            project_ids = ['01', '02', '03', '04']
+
+        config_path, classes = prepare_dataset(project_ids)
+        train_model(config_path)
