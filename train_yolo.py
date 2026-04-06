@@ -260,13 +260,23 @@ def prepare_dataset(project_ids=None):
             if not annotations:
                 continue
 
-            # Render from raw PDF if available, otherwise from labeled
+            # Render from raw PDF if available, otherwise from labeled PDF directly
+            # (labeled PDFs have polygon annotation overlays but the base drawing is intact)
             render_path = raw_path if raw_path else labeled_path
             try:
                 img = render_page(render_path, page_idx)
-            except:
-                print(f"  SKIP page {page_idx+1} of {proj_name} — render failed")
-                continue
+            except Exception as e:
+                # If raw fails, try labeled as fallback
+                if render_path != labeled_path:
+                    try:
+                        img = render_page(labeled_path, page_idx)
+                        print(f"  NOTE: using labeled PDF for {proj_name} page {page_idx+1} (no matching raw)")
+                    except:
+                        print(f"  SKIP page {page_idx+1} of {proj_name} — render failed: {e}")
+                        continue
+                else:
+                    print(f"  SKIP page {page_idx+1} of {proj_name} — render failed: {e}")
+                    continue
 
             tiles = tile_image(img, annotations, class_map)
 
