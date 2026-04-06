@@ -1,0 +1,7 @@
+- [User Profile](user_profile.md) — HVAC industry, has takeoff team, provided Rebar's bootstrap data
+- [HVAC Takeoff Tool Project](project_hvac_takeoff_tool.md) — Building AI takeoff tool, internal first then public
+- [Communication Style](feedback_communication.md) — Wants blunt, honest feedback; push back when wrong
+- [Waiting for Bluebeam Export](project_waiting_bluebeam.md) — Team preparing Bluebeam CSV for ground truth calibration
+- [Keep Repo Updated](feedback_repo_sync.md) — Commit and push to triunesolutions/hvac-takeoff-tool regularly
+- [X-REF & Atlas Deployment](project_xref_atlas_deployment.md) — Vercel projects, domains, API architecture, anti-scraping setup
+- [Vercel Deploy Preferences](feedback_vercel_deploy.md) — Deploy to same project, avoid new projects, CLI quirks
