@@ -32,3 +32,10 @@ symbols_auto/
 runs/
 yolo_dataset/
 *.jpg
+
+# YOLO downloaded weights
+yolov8*.pt
+!models/hvac*.pt
+
+# Dataset zip (large)
+yolo_dataset.zip

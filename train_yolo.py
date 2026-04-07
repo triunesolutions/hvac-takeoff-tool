@@ -186,8 +186,12 @@ def tile_image(img, annotations, class_map, tile_size=TILE_SIZE, overlap=TILE_OV
     return tiles
 
 
-def prepare_dataset(project_ids=None):
-    """Build YOLO dataset from selected projects."""
+def prepare_dataset(project_ids=None, min_class_examples=30):
+    """
+    Build YOLO dataset from selected projects.
+    Classes with fewer than `min_class_examples` total instances are dropped
+    to prevent training instability from rare classes.
+    """
     if os.path.exists(YOLO_DIR):
         shutil.rmtree(YOLO_DIR)
     for split in ['train', 'val']:
@@ -205,8 +209,8 @@ def prepare_dataset(project_ids=None):
     for p in projects:
         print(f"  {p}")
 
-    # First pass: discover all classes
-    all_classes = set()
+    # First pass: discover all classes AND count instances
+    class_counts = defaultdict(int)
     project_data = []
 
     for proj_name in projects:
@@ -223,17 +227,33 @@ def prepare_dataset(project_ids=None):
             if not any(pages.values()):
                 continue
 
-            all_classes.update(classes)
+            # Count instances per class
+            for page_anns in pages.values():
+                for ann in page_anns:
+                    class_counts[ann['class']] += 1
+
             total = sum(len(v) for v in pages.values())
-            print(f"  {proj_name}: {f[:50]} — {total} annotations, classes: {classes}")
+            print(f"  {proj_name}: {f[:50]} — {total} annotations, classes: {set(classes)}")
             project_data.append((proj_name, proj_dir, labeled_path, f, pages))
 
-    # Build class map (keep known order, append new ones)
-    class_list = list(KNOWN_CLASSES)
-    for c in sorted(all_classes):
-        if c not in class_list:
+    # Filter out rare classes
+    kept_classes = {c for c, n in class_counts.items() if n >= min_class_examples}
+    dropped_classes = {c: n for c, n in class_counts.items() if n < min_class_examples}
+
+    print(f"\n--- Class filtering (min {min_class_examples} examples) ---")
+    print(f"  Kept: {len(kept_classes)} classes")
+    print(f"  Dropped: {len(dropped_classes)} rare classes")
+    if dropped_classes:
+        for c, n in sorted(dropped_classes.items(), key=lambda x: -x[1]):
+            print(f"    DROP {c}: {n} examples")
+
+    # Build class map (keep known order, then add by frequency)
+    class_list = [c for c in KNOWN_CLASSES if c in kept_classes]
+    for c, n in sorted(class_counts.items(), key=lambda x: -x[1]):
+        if c in kept_classes and c not in class_list:
             class_list.append(c)
     class_map = {name: idx for idx, name in enumerate(class_list)}
+    all_classes = kept_classes
 
     print(f"\nClasses ({len(class_list)}):")
     for idx, name in enumerate(class_list):
