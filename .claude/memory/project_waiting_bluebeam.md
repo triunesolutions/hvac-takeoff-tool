@@ -10,12 +10,38 @@ User has asked their takeoff team to export Bluebeam markup summaries (CSV) from
 
 **How to apply:** When the Bluebeam CSV arrives, build a parser to extract symbol names, counts, and positions. Then compare against our detection output to compute accuracy metrics. Use the delta to tune thresholds per-symbol-type.
 
-**Current state of the tool (as of 2026-04-02):**
-- YOLOv8n model trained: 88% precision, 51% recall, 62.5% mAP50
-- Model weights: models/hvac_yolov8n_v1.pt (6MB)
-- Trained on 4 projects (Flex 200/210/220/230) with 248 annotations, 6 classes
-- Inference pipeline working: tiles page → runs YOLO → NMS → annotated output
-- GitHub repo: triunesolutions/hvac-takeoff-tool (private)
-- Code: train_yolo.py, visual_detect.py, ocr_detect.py, detect.py
-- Also reviewed pdf-detection-main codebase — will integrate schedule extraction later
-- Bluebeam CSV exports still pending from team
+**Current state of the tool (as of 2026-04-07):**
+- v6 model: yolov8s trained on Colab GPU, 23 projects, 75 classes
+- Production model: models/hvac_yolov8s_v6.pt (22 MB)
+- Fallback: models/hvac_yolov8s_v4.pt (kept for Flex/Haldeman style)
+
+**Training data: 36 organized projects in `data to train/projects/`**
+- 01-04 Flex (Plum/Gensler tenant fit-outs, simple)
+- 05-13 MMS + SOUTHVAC (mostly large/skipped)
+- 14-19 SAMPLE no-raw
+- 20-25 Haldeman (6 projects, BACKDRAFT/JET VENT pattern)
+- 26-36 Micah/GA Larson (11 projects, AD-GRD/MANUAL VOLUME DAMPER pattern)
+
+**v6 benchmark results (5 projects, conf=0.4):**
+- Flex 230: 78% pos / 76% full
+- Mission Bay (Haldeman): 92% pos / 78% full
+- St Elizabeth (Larson): 94% pos / 83% full ← EXCELLENT
+- Aaron Packaging (held-out, Larson): 86% pos / 58% full
+- Larchmont (outlier): 38% pos / 28% full ← FAILED
+- Overall: 83% pos recall, 68% full recall
+
+**Key insights:**
+- Visual position detection generalizes well (~83% across styles)
+- Class disambiguation is the bottleneck — model finds equipment but mislabels it
+- Larchmont's AD-MISC/LINEAR and FANS classes need more training examples
+- YOLO early stopping triggered at epoch 29 due to tiny val set (57 images)
+- 75-class vocabulary too large for some rare classes (3-9 examples each)
+
+**Files:**
+- train_yolo.py — dataset prep + training (auto-discovers classes, tiles 640x640)
+- benchmark.py — runs v6 on any project, computes pos/full recall, saves viz
+- colab_train.ipynb — GPU training on Colab (yolov8s, 120 epochs)
+- PRD.md — product roadmap
+- CLAUDE.md — full project context for new sessions
+- models/hvac_yolov8s_v6.pt — production
+- models/hvac_yolov8s_v4.pt — fallback
