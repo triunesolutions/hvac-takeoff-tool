@@ -19,6 +19,7 @@ import os
 import argparse
 from collections import defaultdict
 from pathlib import Path
+from class_aliases import normalize_class
 
 PROJECTS_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\projects"
 OUTPUT_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\output\benchmark"
@@ -62,7 +63,7 @@ def get_ground_truth(labeled_path):
             r = a.rect
             acx, acy = (r.x0+r.x1)/2, (r.y0+r.y1)/2
             dcx, dcy = annot_to_display(acx, acy, rot, mb_w, mb_h)
-            anns.append({'cls': a.info.get('subject',''),
+            anns.append({'cls': normalize_class(a.info.get('subject','')),
                          'cx': dcx*DPI/72, 'cy': dcy*DPI/72})
         if anns:
             pages[pi] = anns

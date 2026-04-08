@@ -10,10 +10,20 @@ User has asked their takeoff team to export Bluebeam markup summaries (CSV) from
 
 **How to apply:** When the Bluebeam CSV arrives, build a parser to extract symbol names, counts, and positions. Then compare against our detection output to compute accuracy metrics. Use the delta to tune thresholds per-symbol-type.
 
-**Current state of the tool (as of 2026-04-08):**
-- v7 dataset prepared with class consolidation (yolo_dataset.zip 136.7MB)
-- Class consolidation: 75 raw classes -> 19 effective classes via class_aliases.py
-- Waiting on Colab T4 GPU availability (rate-limited) to train v7
+**Current state of the tool (as of 2026-04-08, end of day):**
+- v7 model trained on Colab GPU and benchmarked: 81.2% pos / 51.5% full recall (vs v6: 65.9/48)
+- 19 consolidated classes via class_aliases.py
+- Position recall improved +15 points across the board
+- Full recall improved +3.5 points but with surprises:
+  - WINS: Shamrock 48->87 (+39!), ARE Campus 65->88, Larchmont 28->43, Flex 230 76->86
+  - LOSSES: Columbia Bank 85->49 (-36), Aaron Packaging 58->38 (-20), Mygrant 43->35 (-8)
+- Root cause of losses: AD-GRD became dominant (1285 examples), model now over-predicts it instead of AD-T-BAR SUPPLY for Larson-style ceiling diffusers
+- Class consolidation went too aggressive (e.g., AD-MISC/LINEAR → AD-LINEAR PLENUM merge hurt Aaron)
+
+**TOMORROW'S NEXT MOVE:**
+- Build confusion matrix tool: see exactly which classes are being confused
+- Tune class_aliases.py surgically to roll back bad merges
+- Train v8 with corrected aliases
 - v6 benchmark on 12 projects via Colab GPU: 65.9% pos recall / 48% full recall
   - Excellent: St Elizabeth (94/83), Columbia Bank (96/85)
   - Good: Flex 230 (78/76), ARE Campus Point (65/65)
