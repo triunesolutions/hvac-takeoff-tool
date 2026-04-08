@@ -10,7 +10,20 @@ User has asked their takeoff team to export Bluebeam markup summaries (CSV) from
 
 **How to apply:** When the Bluebeam CSV arrives, build a parser to extract symbol names, counts, and positions. Then compare against our detection output to compute accuracy metrics. Use the delta to tune thresholds per-symbol-type.
 
-**Current state of the tool (as of 2026-04-07):**
+**Current state of the tool (as of 2026-04-08):**
+- v7 dataset prepared with class consolidation (yolo_dataset.zip 136.7MB)
+- Class consolidation: 75 raw classes -> 19 effective classes via class_aliases.py
+- Waiting on Colab T4 GPU availability (rate-limited) to train v7
+- v6 benchmark on 12 projects via Colab GPU: 65.9% pos recall / 48% full recall
+  - Excellent: St Elizabeth (94/83), Columbia Bank (96/85)
+  - Good: Flex 230 (78/76), ARE Campus Point (65/65)
+  - Mediocre: Shamrock (49/48), Mygrant (94/43), Aaron (86/58)
+  - Poor: Capitol (8/8), LUS (71/13), Larchmont (38/28), iThink (15/8)
+  - Failed: Fort Totten (rendering bug — split raw PDFs)
+- Key insight: model finds equipment positions well (~83%) but mislabels classes (class confusion)
+- Class consolidation should fix Mygrant/Aaron type failures (high pos / low full)
+
+**Previous state (2026-04-07):**
 - v6 model: yolov8s trained on Colab GPU, 23 projects, 75 classes
 - Production model: models/hvac_yolov8s_v6.pt (22 MB)
 - Fallback: models/hvac_yolov8s_v4.pt (kept for Flex/Haldeman style)

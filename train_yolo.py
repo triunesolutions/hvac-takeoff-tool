@@ -22,6 +22,7 @@ import yaml
 import argparse
 from pathlib import Path
 from collections import defaultdict
+from class_aliases import normalize_class
 
 PROJECTS_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\projects"
 YOLO_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\yolo_dataset"
@@ -78,6 +79,9 @@ def extract_annotations(pdf_path):
             content = a.info.get('content', '').strip()
             if not subject or not content:
                 continue
+
+            # Normalize class name (merge aliases, fix typos, collapse plurals)
+            subject = normalize_class(subject)
 
             rect = a.rect
             acx = (rect.x0 + rect.x1) / 2
