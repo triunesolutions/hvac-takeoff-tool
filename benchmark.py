@@ -138,15 +138,17 @@ def run_inference(model, img, conf=0.4):
 
 
 def score(dets, gt, match_dist=80):
-    """Returns position recall + full match recall."""
+    """Returns position recall + full match recall + confusion pairs."""
     matched_g = set()
     matched_d_pos = set()
     matched_d_full = set()
+    confusion_pairs = []  # list of (predicted_class, actual_class) for matched positions
     for di, d in enumerate(dets):
         for gi, g in enumerate(gt):
             if gi in matched_g: continue
             if ((d['cx']-g['cx'])**2+(d['cy']-g['cy'])**2)**0.5 < match_dist:
                 matched_g.add(gi)
+                confusion_pairs.append((d['cls'], g['cls']))
                 matched_d_pos.add(di)
                 if d['cls'] == g['cls']:
                     matched_d_full.add(di)
@@ -162,6 +164,7 @@ def score(dets, gt, match_dist=80):
         'full_recall': tp_full / max(len(gt), 1),
         'pos_precision': tp_pos / max(len(dets), 1),
         'full_precision': tp_full / max(len(dets), 1),
+        'confusion_pairs': confusion_pairs,
     }
 
 
@@ -206,6 +209,7 @@ def benchmark_project(model, project_dir, project_name, conf=0.4, save_viz=True)
     page_results = []
     det_class_counts = defaultdict(int)
     gt_class_counts = defaultdict(int)
+    confusion_pairs = []  # All (predicted, actual) pairs across all pages
 
     for page_idx, gt in pages.items():
         try:
@@ -223,6 +227,7 @@ def benchmark_project(model, project_dir, project_name, conf=0.4, save_viz=True)
         total['fn'] += s['fn']
         total['gt_count'] += len(gt)
         total['det_count'] += len(dets)
+        confusion_pairs.extend(s['confusion_pairs'])
 
         for d in dets: det_class_counts[d['cls']] += 1
         for g in gt: gt_class_counts[g['cls']] += 1
@@ -269,15 +274,18 @@ def benchmark_project(model, project_dir, project_name, conf=0.4, save_viz=True)
         'fn': total['fn'],
         'gt_classes': dict(gt_class_counts),
         'det_classes': dict(det_class_counts),
+        'confusion_pairs': confusion_pairs,
     }
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='models/hvac_yolov8s_v6.pt')
+    parser.add_argument('--model', default='models/hvac_yolov8s_v7.pt')
     parser.add_argument('--projects', nargs='+', help='Project ID prefixes')
     parser.add_argument('--conf', type=float, default=0.4)
     parser.add_argument('--no-viz', action='store_true')
+    parser.add_argument('--save-confusion', default='output/confusion_data.json',
+                        help='Path to save raw confusion pair data')
     args = parser.parse_args()
 
     from ultralytics import YOLO
@@ -340,6 +348,28 @@ def main():
 
         if not args.no_viz:
             print(f"\n  Visualizations saved to: {OUTPUT_DIR}")
+
+        # Save confusion data
+        if args.save_confusion:
+            import json
+            os.makedirs(os.path.dirname(args.save_confusion), exist_ok=True)
+            data = {
+                'model': args.model,
+                'conf_threshold': args.conf,
+                'projects': []
+            }
+            for r in results:
+                data['projects'].append({
+                    'project': r['project'],
+                    'gt_count': r['gt_count'],
+                    'det_count': r['det_count'],
+                    'pos_recall': r['pos_recall'],
+                    'full_recall': r['full_recall'],
+                    'confusion_pairs': r.get('confusion_pairs', []),
+                })
+            with open(args.save_confusion, 'w') as f:
+                json.dump(data, f, indent=2)
+            print(f"\n  Confusion data saved to: {args.save_confusion}")
 
     return results
 

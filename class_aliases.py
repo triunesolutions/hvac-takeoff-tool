@@ -2,22 +2,27 @@
 Class consolidation mapping — merges duplicate/equivalent class names.
 Used by train_yolo.py and benchmark.py to normalize annotations.
 
-Why: We had 75 classes from raw annotations, but many were:
-1. Whitespace/plural variants (MOTORIZED  DAMPER vs MOTORIZED DAMPER, FANS vs FAN)
-2. Synonymous types (different naming conventions for same equipment)
-3. Too rare to learn (only 1-3 examples)
-
-Result: ~50 effective classes that the model can actually disambiguate.
+v8 changes (from confusion matrix analysis 2026-04-09):
+- ELECTRIC HEATER + UNIT HEATER + ELECTRIC WALL HEATER → HEATER
+  (model was 100% confusing them — visually identical floor-mount units)
+- FAN COIL UNIT separated from SPLIT SYSTEM HEAT PUMP
+  (was 47% misclassified as split system)
+- Removed CIRCULATION FAN/MUA FAN/DRYER BOOSTER FAN → FAN merge
+  (caused FAN to be over-predicted for AD-GRD diffusers)
+- Removed AD-MISC/LINEAR → AD-LINEAR PLENUM (kept distinct)
+- Removed AD-SURF EXHAUST → AD-SURF RETURN (kept distinct)
 """
 
 CLASS_ALIASES = {
-    # Whitespace/plural normalization
+    # Whitespace/plural normalization (always safe)
     'MOTORIZED  DAMPER': 'MOTORIZED DAMPER',
     'FANS': 'FAN',
     'SUPPLY FANS': 'SUPPLY FAN',
-    'UNIT HEATERS': 'UNIT HEATER',
+    'UNIT HEATERS': 'HEATER',
     'LOUVERS': 'LOUVER',
     'FAN COIL UNITS': 'FAN COIL UNIT',
+
+    # Split system consolidation
     'SPLIT SYSTEM CEILING CONCEALED HEAT PUMP UNITS': 'SPLIT SYSTEM HEAT PUMP',
     'SPLIT SYSTEM COOLING ONLY UNITS': 'SPLIT SYSTEM',
     'SPLIT SYSTEM DUCTLESS AIR CONDITIONING UNIT': 'SPLIT SYSTEM',
@@ -30,23 +35,24 @@ CLASS_ALIASES = {
     'DAMPER WTH TAP': 'DAMPER WITH TAP',  # typo fix
     'COMBINATION FIRE/SMOKE DAMPER': 'FIRE SMOKE DAMPER',
     'SMOKE FIRE DAMPER': 'FIRE SMOKE DAMPER',
-    'SMOKE DAMPER': 'FIRE SMOKE DAMPER',  # close enough for our purposes
+    'SMOKE DAMPER': 'FIRE SMOKE DAMPER',
 
-    # Fan synonyms
+    # Fan synonyms — only merge truly synonymous
     'GREASE EXHAUST FAN': 'EXHAUST FAN',
-    'CIRCULATION FAN': 'FAN',
-    'DOAS/RTU FAN': 'FAN',
-    'MUA FAN': 'FAN',
-    'DRYER BOOSTER FAN': 'FAN',
-    'JET VENT FAN': 'JET VENT FAN',  # keep — visually distinct
-    'DESTRATIFICATION FAN': 'DESTRATIFICATION FAN',  # keep — visually distinct
+    # NOTE: removed CIRCULATION FAN/DOAS/MUA/DRYER BOOSTER → FAN
+    # because it caused FAN to be over-predicted as a "catch-all"
 
-    # Heater consolidation
-    'GAS UNIT HEATER': 'UNIT HEATER',
-    'PLENUM RATED ELECTRIC UNIT HEATER': 'ELECTRIC HEATER',
-    'ELECTRIC DUCT HEATER': 'DUCT HEATER',
-    'GAS FIRED RADIANT HEATER': 'UNIT HEATER',
-    'ELECTRIC WALL HEATER': 'ELECTRIC HEATER',
+    # Heater consolidation — merged based on confusion matrix
+    # ELECTRIC HEATER and UNIT HEATER were 93% confused → merge to HEATER
+    'GAS UNIT HEATER': 'HEATER',
+    'PLENUM RATED ELECTRIC UNIT HEATER': 'HEATER',
+    'ELECTRIC UNIT HEATER': 'HEATER',
+    'ELECTRIC HEATER': 'HEATER',
+    'UNIT HEATER': 'HEATER',
+    'ELECTRIC WALL HEATER': 'HEATER',
+    'GAS FIRED RADIANT HEATER': 'HEATER',
+    'ELECTRIC DUCT HEATER': 'DUCT HEATER',  # keep duct heater separate (visually different)
+    'DUCT HEATER': 'DUCT HEATER',
 
     # Hood/vent consolidation
     'WALL CAP': 'VENT CAP',
@@ -86,17 +92,12 @@ CLASS_ALIASES = {
     # VAV
     'VAV UNIT': 'VAV',
     'VARIABLE AIR VOLUME': 'VAV',
-
-    # Larchmont outliers — map to closest match
-    'AD-MISC/LINEAR': 'AD-LINEAR PLENUM',  # rough mapping
-    'AD-SURF EXHAUST': 'AD-SURF RETURN',   # rough mapping
 }
 
 
 def normalize_class(name):
     """Apply aliases. Strip extra whitespace."""
     name = name.strip()
-    # Collapse multiple spaces
     name = ' '.join(name.split())
     return CLASS_ALIASES.get(name, name)
 
