@@ -26,6 +26,12 @@ import fitz
 import cv2
 import numpy as np
 
+from tag_extractor import (
+    extract_text_with_positions,
+    assign_tags_to_detections,
+    summarize_detections_by_tag,
+)
+
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
@@ -209,65 +215,76 @@ def write_excel(output_path, detections_per_page, project_name):
     ws['A1'].font = Font(size=14, bold=True)
     ws.merge_cells('A1:D1')
 
-    ws['A3'] = 'Equipment Type'
-    ws['B3'] = 'Quantity'
-    ws['C3'] = 'Pages'
-    ws['D3'] = 'Avg Confidence'
-    for col in ['A3', 'B3', 'C3', 'D3']:
+    # Headers: PRODUCT | TAG | QTY | Pages | Avg Confidence
+    ws['A3'] = 'PRODUCT'
+    ws['B3'] = 'TAG'
+    ws['C3'] = 'QTY'
+    ws['D3'] = 'Pages'
+    ws['E3'] = 'Avg Confidence'
+    for col in ['A3', 'B3', 'C3', 'D3', 'E3']:
         ws[col].font = Font(bold=True)
         ws[col].fill = PatternFill('solid', fgColor='DDDDDD')
 
-    # Aggregate counts
-    class_counts = defaultdict(int)
-    class_pages = defaultdict(set)
-    class_confs = defaultdict(list)
+    # Group by (class, tag)
+    grouped = defaultdict(lambda: {'count': 0, 'pages': set(), 'confs': []})
     for page_idx, dets in detections_per_page.items():
         for d in dets:
-            class_counts[d['cls']] += 1
-            class_pages[d['cls']].add(page_idx + 1)
-            class_confs[d['cls']].append(d['conf'])
+            cls = d['cls']
+            tag = d.get('tag') or '(no-tag)'
+            key = (cls, tag)
+            grouped[key]['count'] += 1
+            grouped[key]['pages'].add(page_idx + 1)
+            grouped[key]['confs'].append(d['conf'])
 
     row = 4
     total = 0
-    for cls in sorted(class_counts.keys(), key=lambda c: -class_counts[c]):
-        ws[f'A{row}'] = cls
-        ws[f'B{row}'] = class_counts[cls]
-        ws[f'C{row}'] = ', '.join(str(p) for p in sorted(class_pages[cls]))
-        ws[f'D{row}'] = f"{sum(class_confs[cls]) / len(class_confs[cls]):.0%}"
-        total += class_counts[cls]
+    current_cls = None
+    # Sort by class then by tag (mimics team's Excel grouping)
+    for (cls, tag), data in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
+        # Print class name on first row of each group (like team's Excel)
+        ws[f'A{row}'] = cls if cls != current_cls else ''
+        current_cls = cls
+        ws[f'B{row}'] = tag if tag != '(no-tag)' else ''
+        ws[f'C{row}'] = data['count']
+        ws[f'D{row}'] = ', '.join(str(p) for p in sorted(data['pages']))
+        ws[f'E{row}'] = f"{sum(data['confs']) / len(data['confs']):.0%}"
+        total += data['count']
         row += 1
 
     # Total
     ws[f'A{row+1}'] = 'TOTAL'
-    ws[f'B{row+1}'] = total
+    ws[f'C{row+1}'] = total
     ws[f'A{row+1}'].font = Font(bold=True)
-    ws[f'B{row+1}'].font = Font(bold=True)
+    ws[f'C{row+1}'].font = Font(bold=True)
 
     # Column widths
-    ws.column_dimensions['A'].width = 35
-    ws.column_dimensions['B'].width = 12
-    ws.column_dimensions['C'].width = 15
-    ws.column_dimensions['D'].width = 18
+    ws.column_dimensions['A'].width = 32
+    ws.column_dimensions['B'].width = 15
+    ws.column_dimensions['C'].width = 8
+    ws.column_dimensions['D'].width = 15
+    ws.column_dimensions['E'].width = 18
 
     # Sheet 2: Detail (every detection)
     ws2 = wb.create_sheet('Detail by Equipment')
     ws2['A1'] = 'Page'
     ws2['B1'] = 'Equipment'
-    ws2['C1'] = 'Confidence'
-    ws2['D1'] = 'X (px)'
-    ws2['E1'] = 'Y (px)'
-    for col in ['A1', 'B1', 'C1', 'D1', 'E1']:
+    ws2['C1'] = 'Tag'
+    ws2['D1'] = 'Confidence'
+    ws2['E1'] = 'X (px)'
+    ws2['F1'] = 'Y (px)'
+    for col in ['A1', 'B1', 'C1', 'D1', 'E1', 'F1']:
         ws2[col].font = Font(bold=True)
         ws2[col].fill = PatternFill('solid', fgColor='DDDDDD')
 
     row = 2
     for page_idx in sorted(detections_per_page.keys()):
-        for d in sorted(detections_per_page[page_idx], key=lambda x: x['cls']):
+        for d in sorted(detections_per_page[page_idx], key=lambda x: (x['cls'], x.get('tag') or '')):
             ws2[f'A{row}'] = page_idx + 1
             ws2[f'B{row}'] = d['cls']
-            ws2[f'C{row}'] = f"{d['conf']:.0%}"
-            ws2[f'D{row}'] = int(d['cx'])
-            ws2[f'E{row}'] = int(d['cy'])
+            ws2[f'C{row}'] = d.get('tag') or ''
+            ws2[f'D{row}'] = f"{d['conf']:.0%}"
+            ws2[f'E{row}'] = int(d['cx'])
+            ws2[f'F{row}'] = int(d['cy'])
             row += 1
 
     ws2.column_dimensions['A'].width = 8
@@ -369,8 +386,20 @@ def main():
             continue
         print(f"detecting...", end=' ', flush=True)
         dets = run_inference(model, img, conf=args.conf)
+
+        # Tag extraction — find text near each detection
+        if dets:
+            print(f"extracting tags...", end=' ', flush=True)
+            try:
+                words = extract_text_with_positions(str(pdf_path), page_idx, dpi_scale=DPI)
+                assign_tags_to_detections(dets, words, radius=150)
+                tagged = sum(1 for d in dets if d.get('tag'))
+                print(f"{len(dets)} found ({tagged} tagged)", end=' ')
+            except Exception as e:
+                print(f"tag-extract-failed: {e}", end=' ')
+
         elapsed = time.time() - t0
-        print(f"{len(dets)} equipment found ({elapsed:.0f}s)")
+        print(f"({elapsed:.0f}s)")
         if dets:
             detections_per_page[page_idx] = dets
 
@@ -390,16 +419,22 @@ def main():
             class_counts[d['cls']] += 1
 
     # Print summary
-    print(f"{'='*70}")
+    all_dets = [d for dets in detections_per_page.values() for d in dets]
+    tag_summary = summarize_detections_by_tag(all_dets)
+    tagged = sum(1 for d in all_dets if d.get('tag'))
+
+    print(f"{'='*75}")
     print(f"TAKEOFF SUMMARY")
-    print(f"{'='*70}")
+    print(f"{'='*75}")
     print(f"  Total equipment detected: {total_count}")
+    print(f"  Tagged:                   {tagged} / {total_count} ({tagged/max(total_count,1)*100:.0f}%)")
     print(f"  Pages with equipment:     {len(detections_per_page)}")
     print()
-    print(f"  {'Equipment Type':<35} {'Count':>8}")
-    print(f"  {'-'*35} {'-'*8}")
-    for cls in sorted(class_counts.keys(), key=lambda c: -class_counts[c]):
-        print(f"  {cls:<35} {class_counts[cls]:>8}")
+    print(f"  {'Equipment Type':<30} {'Tag':<15} {'Count':>8}")
+    print(f"  {'-'*30} {'-'*15} {'-'*8}")
+    for row in tag_summary:
+        tag_disp = row['tag'] if row['tag'] != '(no-tag)' else '—'
+        print(f"  {row['class'][:29]:<30} {tag_disp:<15} {row['count']:>8}")
     print()
 
     # Output files

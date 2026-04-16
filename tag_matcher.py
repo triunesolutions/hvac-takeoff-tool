@@ -1,0 +1,302 @@
+"""
+Schedule-guided tag matcher.
+
+Given:
+  - A list of valid tags from the project's schedule (e.g., ["A", "B", "C", "D"])
+  - A rendered page image
+  - YOLO detections with positions
+
+Does:
+  1. Runs EasyOCR on the page (one pass)
+  2. Filters OCR results to ONLY tokens matching the valid tag list
+  3. For each detection, assigns the closest matching tag
+
+This is more accurate than unrestricted text extraction because it only
+looks for tags we KNOW exist in the project's schedule.
+"""
+import re
+import numpy as np
+from collections import defaultdict
+
+
+_easyocr_reader = None
+
+
+def get_ocr_reader():
+    """Lazy-init EasyOCR (loads ~100MB model on first call)."""
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        import easyocr
+        _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+    return _easyocr_reader
+
+
+def _normalize_for_match(s):
+    """Normalize for fuzzy matching: uppercase, strip punctuation/spaces."""
+    if not s:
+        return ''
+    return re.sub(r'[^A-Z0-9]', '', str(s).upper())
+
+
+def ocr_page(img, conf_threshold=0.4):
+    """
+    Run EasyOCR on a page image. Returns list of
+    {text, cx, cy, bbox, confidence}
+    """
+    reader = get_ocr_reader()
+    results = reader.readtext(img)
+
+    words = []
+    for bbox, text, conf in results:
+        if conf < conf_threshold:
+            continue
+        xs = [p[0] for p in bbox]
+        ys = [p[1] for p in bbox]
+        words.append({
+            'text': text.strip(),
+            'cx': (min(xs) + max(xs)) / 2,
+            'cy': (min(ys) + max(ys)) / 2,
+            'x1': min(xs), 'y1': min(ys),
+            'x2': max(xs), 'y2': max(ys),
+            'conf': conf,
+        })
+    return words
+
+
+def ocr_near_detection(img, det, crop_size=180, conf_threshold=0.3):
+    """
+    Crop a region around a detection and OCR just that crop.
+    Works better for single-character tags (A, B, C, D) that get missed
+    in full-page OCR because they're too small relative to the page.
+
+    Returns list of words with coords in the ORIGINAL image coordinate system.
+    """
+    reader = get_ocr_reader()
+
+    dcx = det.get('cx', (det.get('x1', 0) + det.get('x2', 0)) / 2)
+    dcy = det.get('cy', (det.get('y1', 0) + det.get('y2', 0)) / 2)
+
+    h, w = img.shape[:2]
+    x1 = max(0, int(dcx - crop_size))
+    y1 = max(0, int(dcy - crop_size))
+    x2 = min(w, int(dcx + crop_size))
+    y2 = min(h, int(dcy + crop_size))
+
+    crop = img[y1:y2, x1:x2]
+    if crop.size == 0:
+        return []
+
+    results = reader.readtext(crop)
+    words = []
+    for bbox, text, conf in results:
+        if conf < conf_threshold:
+            continue
+        xs = [p[0] for p in bbox]
+        ys = [p[1] for p in bbox]
+        # Translate back to page coords
+        words.append({
+            'text': text.strip(),
+            'cx': (min(xs) + max(xs)) / 2 + x1,
+            'cy': (min(ys) + max(ys)) / 2 + y1,
+            'x1': min(xs) + x1, 'y1': min(ys) + y1,
+            'x2': max(xs) + x1, 'y2': max(ys) + y1,
+            'conf': conf,
+        })
+    return words
+
+
+def tag_detections_by_cropped_ocr(img, detections, valid_tags, crop_size=180,
+                                    max_distance=150):
+    """
+    For each detection, OCR a crop around it and match against valid tags.
+    Returns stats dict.
+
+    This is the recommended path for single-letter tags that get missed
+    by full-page OCR.
+    """
+    if not valid_tags:
+        for d in detections:
+            d['tag'] = None
+            d['tag_confidence'] = 0
+        return {'tagged': 0, 'total': len(detections)}
+
+    tagged_count = 0
+    for det in detections:
+        words = ocr_near_detection(img, det, crop_size=crop_size)
+        matches = match_valid_tags(words, valid_tags)
+
+        if not matches:
+            det['tag'] = None
+            det['tag_confidence'] = 0
+            continue
+
+        # Closest match
+        dcx = det.get('cx', 0)
+        dcy = det.get('cy', 0)
+        best = None
+        best_dist = float('inf')
+        for tag, w in matches:
+            d = ((w['cx'] - dcx) ** 2 + (w['cy'] - dcy) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best = (tag, w)
+
+        if best and best_dist <= max_distance:
+            det['tag'] = best[0]
+            det['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
+            tagged_count += 1
+        else:
+            det['tag'] = None
+            det['tag_confidence'] = 0
+
+    return {'tagged': tagged_count, 'total': len(detections)}
+
+
+def match_valid_tags(ocr_words, valid_tags):
+    """
+    Filter OCR results to tokens matching valid tags from the schedule.
+    Uses fuzzy matching (uppercase, ignores non-alphanumeric).
+
+    Returns a list of (tag, word_dict) pairs.
+    """
+    if not valid_tags:
+        return []
+
+    # Build normalized lookup
+    tag_lookup = {}
+    for tag in valid_tags:
+        normalized = _normalize_for_match(tag)
+        if normalized:
+            tag_lookup[normalized] = tag
+
+    # Also add "A" -> "A" for single-letter tags in case OCR reads them
+    # standalone without the circle bubble context
+    matches = []
+    for w in ocr_words:
+        normalized = _normalize_for_match(w['text'])
+        if not normalized:
+            continue
+        if normalized in tag_lookup:
+            matches.append((tag_lookup[normalized], w))
+            continue
+
+        # Partial match: sometimes OCR reads "A 240" as one word — split and try
+        parts = re.findall(r'[A-Z0-9]+', w['text'].upper())
+        for part in parts:
+            if part in tag_lookup:
+                matches.append((tag_lookup[part], w))
+                break
+
+    return matches
+
+
+def assign_tags_to_detections(detections, tag_matches, max_distance=200):
+    """
+    For each detection, find the closest tag match within max_distance pixels.
+    Mutates detections by setting 'tag'.
+    """
+    if not tag_matches:
+        for d in detections:
+            d['tag'] = None
+            d['tag_confidence'] = 0
+        return detections
+
+    # Track which matches have been used (each tag instance matches at most once)
+    used = set()
+
+    # Pair each detection with closest unused tag match
+    pairs = []  # (detection_idx, match_idx, distance)
+    for di, d in enumerate(detections):
+        dcx = d.get('cx', (d.get('x1', 0) + d.get('x2', 0)) / 2)
+        dcy = d.get('cy', (d.get('y1', 0) + d.get('y2', 0)) / 2)
+        for mi, (tag, w) in enumerate(tag_matches):
+            dist = ((w['cx'] - dcx) ** 2 + (w['cy'] - dcy) ** 2) ** 0.5
+            if dist <= max_distance:
+                pairs.append((di, mi, dist, tag, w))
+
+    # Greedy assignment: closest pairs first
+    pairs.sort(key=lambda p: p[2])
+    assigned_det = set()
+    for di, mi, dist, tag, w in pairs:
+        if di in assigned_det or mi in used:
+            continue
+        detections[di]['tag'] = tag
+        detections[di]['tag_confidence'] = 1.0 - min(dist / max_distance, 1.0)
+        assigned_det.add(di)
+        used.add(mi)
+
+    # Mark unassigned
+    for di, d in enumerate(detections):
+        if di not in assigned_det:
+            d['tag'] = None
+            d['tag_confidence'] = 0
+
+    return detections
+
+
+def run_schedule_guided_tagging(img, detections, valid_tags, max_distance=200):
+    """
+    Full pipeline:
+    1. OCR the page image
+    2. Filter to valid tags from schedule
+    3. Assign tags to detections by proximity
+
+    Returns (detections_with_tags, ocr_word_count, match_count)
+    """
+    if not valid_tags:
+        return detections, 0, 0
+
+    ocr_words = ocr_page(img)
+    matches = match_valid_tags(ocr_words, valid_tags)
+    assign_tags_to_detections(detections, matches, max_distance)
+
+    return detections, len(ocr_words), len(matches)
+
+
+if __name__ == "__main__":
+    # Quick test
+    import sys
+    import fitz
+    import cv2
+    from schedule_parser import parse_pdf_schedules
+
+    if len(sys.argv) < 2:
+        print("Usage: python tag_matcher.py path/to/blueprint.pdf [page_index]")
+        sys.exit(1)
+
+    pdf = sys.argv[1]
+    page_idx = int(sys.argv[2]) - 1 if len(sys.argv) > 2 else 5
+
+    print(f"Step 1: Parsing schedule from {pdf}")
+    schedules, marks, details, legend, summary = parse_pdf_schedules(pdf)
+    print(f"  Found {len(marks)} valid tags: {marks}")
+
+    if not marks:
+        print("No tags in schedule — can't do schedule-guided matching")
+        sys.exit(0)
+
+    print(f"\nStep 2: Rendering page {page_idx+1}")
+    doc = fitz.open(pdf)
+    pix = doc[page_idx].get_pixmap(matrix=fitz.Matrix(200/72, 200/72))
+    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    if pix.n == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+    elif pix.n == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    doc.close()
+
+    print(f"\nStep 3: Running OCR on full page ({img.shape[1]}x{img.shape[0]} px)...")
+    ocr_words = ocr_page(img)
+    print(f"  OCR found {len(ocr_words)} text regions")
+
+    print(f"\nStep 4: Matching to schedule tags...")
+    matches = match_valid_tags(ocr_words, marks)
+    print(f"  Matched {len(matches)} tag instances on the drawing")
+
+    tag_counts = defaultdict(int)
+    for tag, w in matches:
+        tag_counts[tag] += 1
+
+    print(f"\n  Tag instances found on drawing:")
+    for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1]):
+        print(f"    {tag}: {count}")
