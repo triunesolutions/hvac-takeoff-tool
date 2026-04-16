@@ -280,7 +280,7 @@ def benchmark_project(model, project_dir, project_name, conf=0.4, save_viz=True)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='models/hvac_yolov8s_v7.pt')
+    parser.add_argument('--model', default='models/hvac_yolov8s_v9.pt')
     parser.add_argument('--projects', nargs='+', help='Project ID prefixes')
     parser.add_argument('--conf', type=float, default=0.4)
     parser.add_argument('--no-viz', action='store_true')

@@ -29,7 +29,7 @@ import numpy as np
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = 'models/hvac_yolov8s_v8.pt'
+DEFAULT_MODEL = 'models/hvac_yolov8s_v9.pt'
 DPI = 200
 TILE_SIZE = 640
 TILE_OVERLAP = 100
