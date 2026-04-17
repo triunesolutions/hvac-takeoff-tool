@@ -27,7 +27,22 @@ HAS_LETTER = re.compile(r'[A-Za-z]')
 TAG_IN_DESC = re.compile(r'\b([A-Z]{1,4}-?\d+[A-Z]?(?:-[A-Z]+)?)\b')
 
 # Known header keywords that indicate a TAG column
-TAG_COL_KEYWORDS = ("MARK", "TAG", "DESIGNATION", "UNIT TAG", "EQUIPMENT TAG", "SYMBOL", "ID")
+TAG_COL_KEYWORDS = ("MARK", "TAG", "DESIGNATION", "UNIT TAG", "EQUIPMENT TAG",
+                     "SYMBOL", "ID", "NO.", "UNIT", "REF", "ITEM")
+
+# Keywords that indicate a page likely contains equipment schedules
+SCHEDULE_KEYWORDS = [
+    "SCHEDULE", "EQUIPMENT", "DEVICE LIST",
+    "AIR CURTAIN", "CONDENSING UNIT", "SPLIT SYSTEM",
+    "FAN COIL", "DIFFUSER", "REGISTER", "GRILLE",
+    "UNIT SCHEDULE", "TERMINAL", "ROOFTOP",
+    "MECHANICAL SCHEDULE", "HVAC SCHEDULE",
+]
+
+# Property keywords that identify a schedule table even without "SCHEDULE" keyword
+PROPERTY_KEYWORDS = {"MANUFACTURER", "MODEL", "AIRFLOW", "CFM", "CAPACITY",
+                      "INLET", "OUTLET", "WEIGHT", "VOLTAGE", "WATTS",
+                      "BTU", "TONNAGE", "MOUNTING", "SIZE"}
 
 # Junk that should never count as a tag
 JUNK_TAGS = {
@@ -185,7 +200,7 @@ def extract_schedules_and_marks(pdf_path):
         for page_index, page in enumerate(pdf.pages):
             try:
                 text_upper = (page.extract_text() or "").upper()
-                page_has_schedule = "SCHEDULE" in text_upper
+                page_has_schedule = any(kw in text_upper for kw in SCHEDULE_KEYWORDS)
                 tables = page.extract_tables()
             except Exception:
                 continue
@@ -196,7 +211,40 @@ def extract_schedules_and_marks(pdf_path):
                 if all(all((cell is None or str(cell).strip() == "") for cell in row) for row in table):
                     continue
 
-                # Find header row containing a TAG keyword
+                # --- Detect table orientation ---
+                # HORIZONTAL table = properties listed DOWN column 0
+                # (MARK, MANUFACTURER, MODEL, CFM etc.) and tags as column headers.
+                # Require MARK/TAG in column 0 AND 2+ property keywords in column 0.
+                is_horizontal = False
+                if len(table) >= 3 and len(table[0]) >= 3:
+                    col0_cells = [str(row[0]).strip().upper() if row[0] else '' for row in table]
+                    col0_has_mark = any(
+                        c in ('MARK', 'TAG', 'DESIGNATION', 'SYMBOL')
+                        for c in col0_cells
+                    )
+                    col0_prop_count = sum(
+                        1 for c in col0_cells
+                        if any(kw in c for kw in ('MODEL', 'MANUFACTURER', 'CFM',
+                               'AIRFLOW', 'SIZE', 'CAPACITY', 'SERVICE', 'TYPE',
+                               'VOLTAGE', 'WEIGHT'))
+                        and len(c) < 30
+                    )
+                    # Both conditions: TAG label + properties in column 0
+                    if col0_has_mark and col0_prop_count >= 2:
+                        is_horizontal = True
+
+                # Transpose horizontal tables
+                if is_horizontal:
+                    max_cols = max(len(row) for row in table)
+                    transposed = []
+                    for col_idx in range(max_cols):
+                        new_row = []
+                        for row in table:
+                            new_row.append(row[col_idx] if col_idx < len(row) else None)
+                        transposed.append(new_row)
+                    table = transposed
+
+                # --- Find header row containing a TAG keyword ---
                 header_row_idx = None
                 for r_idx, row in enumerate(table):
                     for cell in row:
@@ -206,12 +254,23 @@ def extract_schedules_and_marks(pdf_path):
                         if cell_upper in TAG_COL_KEYWORDS:
                             header_row_idx = r_idx
                             break
-                        # also allow "MARK" as substring in short header
                         if ("MARK" in cell_upper or "TAG" in cell_upper) and len(cell_upper) < 20:
                             header_row_idx = r_idx
                             break
                     if header_row_idx is not None:
                         break
+
+                # --- Property-based detection fallback ---
+                # If no MARK/TAG found, check if table has enough property keywords
+                # to be a schedule (then use first row as tags)
+                if header_row_idx is None and not page_has_schedule:
+                    # Check if any row has 3+ property keywords
+                    for r_idx, row in enumerate(table):
+                        row_props = sum(1 for cell in row if cell and
+                                        any(kw in str(cell).upper() for kw in PROPERTY_KEYWORDS))
+                        if row_props >= 3:
+                            page_has_schedule = True
+                            break
 
                 if header_row_idx is None and not page_has_schedule:
                     continue
