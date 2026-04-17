@@ -26,11 +26,9 @@ import fitz
 import cv2
 import numpy as np
 
-from tag_extractor import (
-    extract_text_with_positions,
-    assign_tags_to_detections,
-    summarize_detections_by_tag,
-)
+from tag_extractor import summarize_detections_by_tag
+from tag_inference import infer_tags
+from schedule_parser import parse_pdf_schedules
 
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -373,6 +371,16 @@ def main():
 
     print(f"Processing {len(pages_to_process)} page(s) of {total_pages} total\n")
 
+    # Parse schedule first — need tags for inference
+    print("Parsing schedule...")
+    try:
+        schedules, marks, mark_details, legend, sched_summary = parse_pdf_schedules(str(pdf_path))
+        print(f"  Found {len(marks)} GRD tags: {marks[:10]}{'...' if len(marks)>10 else ''}")
+    except Exception as e:
+        print(f"  Schedule parse failed: {e}")
+        schedules, marks, mark_details = [], [], {}
+    print()
+
     # Process each page
     detections_per_page = {}
     t_start = time.time()
@@ -386,25 +394,24 @@ def main():
             continue
         print(f"detecting...", end=' ', flush=True)
         dets = run_inference(model, img, conf=args.conf)
-
-        # Tag extraction — find text near each detection
-        if dets:
-            print(f"extracting tags...", end=' ', flush=True)
-            try:
-                words = extract_text_with_positions(str(pdf_path), page_idx, dpi_scale=DPI)
-                assign_tags_to_detections(dets, words, radius=150)
-                tagged = sum(1 for d in dets if d.get('tag'))
-                print(f"{len(dets)} found ({tagged} tagged)", end=' ')
-            except Exception as e:
-                print(f"tag-extract-failed: {e}", end=' ')
-
         elapsed = time.time() - t0
-        print(f"({elapsed:.0f}s)")
+        print(f"{len(dets)} found ({elapsed:.0f}s)")
         if dets:
             detections_per_page[page_idx] = dets
 
     total_elapsed = time.time() - t_start
     print(f"\nDetection complete in {total_elapsed:.0f}s")
+
+    # Tag inference — 3-level system
+    if detections_per_page:
+        print("\nInferring tags...")
+        detections_per_page, tag_stats = infer_tags(
+            detections_per_page, schedules, marks, mark_details, str(pdf_path)
+        )
+        print(f"  Tagged: {tag_stats['tagged']}/{tag_stats['total']} ({tag_stats['tagged_pct']:.0f}%)")
+        for ls in tag_stats.get('levels', []):
+            if ls.get('tagged', 0) > 0 or ls.get('mapping'):
+                print(f"  Level {ls.get('level', '?')}: {ls.get('method', '')} — {ls}")
     print()
 
     # Aggregate
