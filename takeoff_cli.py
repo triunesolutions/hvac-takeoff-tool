@@ -193,8 +193,8 @@ def annotate_pdf(input_pdf, output_pdf, detections_per_page):
 
 # ─── EXCEL OUTPUT ─────────────────────────────────────────────────────────────
 
-def write_excel(output_path, detections_per_page, project_name):
-    """Write Excel takeoff with counts."""
+def write_excel(output_path, detections_per_page, project_name, schedule_details=None):
+    """Write Excel takeoff matching team's format."""
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -202,87 +202,110 @@ def write_excel(output_path, detections_per_page, project_name):
         print("openpyxl not installed, skipping Excel output. Install with: pip install openpyxl")
         return False
 
+    if schedule_details is None:
+        schedule_details = {}
+
     wb = openpyxl.Workbook()
 
-    # Sheet 1: Summary by class
+    # Sheet 1: Triune Takeoff (matches team's format)
     ws = wb.active
-    ws.title = 'Takeoff Summary'
+    ws.title = 'Triune Takeoff'
 
     # Header
     ws['A1'] = f'HVAC Takeoff: {project_name}'
     ws['A1'].font = Font(size=14, bold=True)
-    ws.merge_cells('A1:D1')
+    ws.merge_cells('A1:E1')
 
-    # Headers: PRODUCT | TAG | QTY | Pages | Avg Confidence
-    ws['A3'] = 'PRODUCT'
-    ws['B3'] = 'TAG'
-    ws['C3'] = 'QTY'
-    ws['D3'] = 'Pages'
-    ws['E3'] = 'Avg Confidence'
-    for col in ['A3', 'B3', 'C3', 'D3', 'E3']:
-        ws[col].font = Font(bold=True)
-        ws[col].fill = PatternFill('solid', fgColor='DDDDDD')
+    # Team's exact headers
+    HEADERS = ['PRODUCT', 'BRAND', 'MODEL', 'QTY', 'TAG', 'NECK SIZE',
+               'MODULE SIZE', 'DUCT SIZE', 'TYPE', 'MOUNTING', 'REMARK']
+    for ci, h in enumerate(HEADERS, 1):
+        cell = ws.cell(row=3, column=ci, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', fgColor='DDDDDD')
 
-    # Group by (class, tag)
-    grouped = defaultdict(lambda: {'count': 0, 'pages': set(), 'confs': []})
+    # Group detections by (class, tag) and fill in schedule details
+    grouped = defaultdict(lambda: {'count': 0, 'pages': set()})
     for page_idx, dets in detections_per_page.items():
         for d in dets:
             cls = d['cls']
-            tag = d.get('tag') or '(no-tag)'
+            tag = d.get('tag') or ''
             key = (cls, tag)
             grouped[key]['count'] += 1
             grouped[key]['pages'].add(page_idx + 1)
-            grouped[key]['confs'].append(d['conf'])
 
     row = 4
     total = 0
     current_cls = None
-    # Sort by class then by tag (mimics team's Excel grouping)
     for (cls, tag), data in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
-        # Print class name on first row of each group (like team's Excel)
-        ws[f'A{row}'] = cls if cls != current_cls else ''
+        # Lookup schedule details for this tag
+        details = schedule_details.get(tag, {})
+        brand = details.get('MANUFACTURER\n& MODEL', details.get('MANUFACTURER', '')).split('\n')[0]
+        model = details.get('MANUFACTURER\n& MODEL', details.get('MODEL', '')).split('\n')[-1] if '\n' in details.get('MANUFACTURER\n& MODEL', '') else details.get('MODEL', '')
+        neck_size = details.get('SIZE\n(NECK)', details.get('SIZE', details.get('NECK SIZE', '')))
+        etype = details.get('SERVICE', details.get('TYPE', ''))
+        mounting = details.get('MOUNTING', '')
+        remark = details.get('REMARKS', details.get('REMARK', ''))
+
+        # Clean multi-line text
+        for v in [brand, model, neck_size, etype, mounting, remark]:
+            if isinstance(v, str):
+                v = ' '.join(v.split())
+
+        ws.cell(row=row, column=1, value=cls if cls != current_cls else '')
         current_cls = cls
-        ws[f'B{row}'] = tag if tag != '(no-tag)' else ''
-        ws[f'C{row}'] = data['count']
-        ws[f'D{row}'] = ', '.join(str(p) for p in sorted(data['pages']))
-        ws[f'E{row}'] = f"{sum(data['confs']) / len(data['confs']):.0%}"
+        ws.cell(row=row, column=2, value=' '.join(brand.split()) if brand else '')
+        ws.cell(row=row, column=3, value=' '.join(model.split()) if model else '')
+        ws.cell(row=row, column=4, value=data['count'])
+        ws.cell(row=row, column=5, value=tag)
+        ws.cell(row=row, column=6, value=' '.join(str(neck_size).split()) if neck_size else '')
+        ws.cell(row=row, column=9, value=' '.join(str(etype).split()) if etype else '')
+        ws.cell(row=row, column=10, value=' '.join(str(mounting).split()) if mounting else '')
+        ws.cell(row=row, column=11, value=f"Pages: {', '.join(str(p) for p in sorted(data['pages']))}")
         total += data['count']
         row += 1
 
-    # Total
-    ws[f'A{row+1}'] = 'TOTAL'
-    ws[f'C{row+1}'] = total
-    ws[f'A{row+1}'].font = Font(bold=True)
-    ws[f'C{row+1}'].font = Font(bold=True)
+    # Product totals
+    for cls in sorted(set(c for c, t in grouped.keys())):
+        cls_total = sum(d['count'] for (c, t), d in grouped.items() if c == cls)
+        ws.cell(row=row, column=1, value=f'{cls} Total').font = Font(bold=True)
+        ws.cell(row=row, column=4, value=cls_total).font = Font(bold=True)
+        row += 1
+
+    # Grand total
+    row += 1
+    ws.cell(row=row, column=1, value='GRAND TOTAL').font = Font(bold=True, size=12)
+    ws.cell(row=row, column=4, value=total).font = Font(bold=True, size=12)
 
     # Column widths
-    ws.column_dimensions['A'].width = 32
-    ws.column_dimensions['B'].width = 15
-    ws.column_dimensions['C'].width = 8
-    ws.column_dimensions['D'].width = 15
-    ws.column_dimensions['E'].width = 18
+    widths = [30, 15, 15, 8, 18, 12, 12, 12, 25, 12, 25]
+    for ci, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + ci)].width = w
 
-    # Sheet 2: Detail (every detection)
-    ws2 = wb.create_sheet('Detail by Equipment')
-    ws2['A1'] = 'Page'
-    ws2['B1'] = 'Equipment'
-    ws2['C1'] = 'Tag'
-    ws2['D1'] = 'Confidence'
-    ws2['E1'] = 'X (px)'
-    ws2['F1'] = 'Y (px)'
-    for col in ['A1', 'B1', 'C1', 'D1', 'E1', 'F1']:
-        ws2[col].font = Font(bold=True)
-        ws2[col].fill = PatternFill('solid', fgColor='DDDDDD')
+    # Sheet 2: RawData (every detection, flat)
+    ws2 = wb.create_sheet('RawData')
+    for ci, h in enumerate(HEADERS, 1):
+        cell = ws2.cell(row=1, column=ci, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', fgColor='DDDDDD')
 
     row = 2
     for page_idx in sorted(detections_per_page.keys()):
         for d in sorted(detections_per_page[page_idx], key=lambda x: (x['cls'], x.get('tag') or '')):
-            ws2[f'A{row}'] = page_idx + 1
-            ws2[f'B{row}'] = d['cls']
-            ws2[f'C{row}'] = d.get('tag') or ''
-            ws2[f'D{row}'] = f"{d['conf']:.0%}"
-            ws2[f'E{row}'] = int(d['cx'])
-            ws2[f'F{row}'] = int(d['cy'])
+            tag = d.get('tag') or ''
+            details = schedule_details.get(tag, {})
+            brand = details.get('MANUFACTURER\n& MODEL', details.get('MANUFACTURER', '')).split('\n')[0]
+            model = details.get('MANUFACTURER\n& MODEL', details.get('MODEL', '')).split('\n')[-1] if '\n' in details.get('MANUFACTURER\n& MODEL', '') else details.get('MODEL', '')
+            neck_size = details.get('SIZE\n(NECK)', details.get('SIZE', ''))
+            etype = details.get('SERVICE', details.get('TYPE', ''))
+
+            ws2.cell(row=row, column=1, value=d['cls'])
+            ws2.cell(row=row, column=2, value=' '.join(str(brand).split()))
+            ws2.cell(row=row, column=3, value=' '.join(str(model).split()))
+            ws2.cell(row=row, column=4, value=1)
+            ws2.cell(row=row, column=5, value=tag)
+            ws2.cell(row=row, column=6, value=' '.join(str(neck_size).split()))
+            ws2.cell(row=row, column=9, value=' '.join(str(etype).split()))
             row += 1
 
     ws2.column_dimensions['A'].width = 8
@@ -453,7 +476,7 @@ def main():
     annotate_pdf(str(pdf_path), str(annotated_pdf_path), detections_per_page)
 
     print(f"  Excel takeoff:  {excel_path}")
-    write_excel(str(excel_path), detections_per_page, pdf_path.stem)
+    write_excel(str(excel_path), detections_per_page, pdf_path.stem, mark_details)
 
     print(f"\n{'='*70}")
     print(f"DONE — open {out_dir} to see the results")
