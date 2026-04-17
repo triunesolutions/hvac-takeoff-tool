@@ -23,6 +23,36 @@ from collections import defaultdict
 import fitz
 
 
+# Common tag prefix → YOLO class mapping
+TAG_PREFIX_CLASS = {
+    'EF': 'EXHAUST FAN', 'SF': 'FAN', 'CF': 'FAN', 'RF': 'FAN',
+    'CU': 'CONDENSING UNIT', 'AC': 'CONDENSING UNIT',
+    'AHU': 'AIR HANDLING UNIT', 'RTU': 'PACKAGED ROOFTOP UNIT',
+    'FCU': 'FAN COIL UNIT', 'HP': 'HEAT PUMP',
+    'EUH': 'HEATER', 'UH': 'HEATER', 'EH': 'HEATER', 'BH': 'HEATER',
+    'VAV': 'VAV', 'VRF': 'VRF', 'ERV': 'CONDENSING UNIT',
+    'MD': 'MOTORIZED DAMPER', 'MVD': 'MANUAL VOLUME DAMPER', 'FD': 'FIRE DAMPER',
+    'FSD': 'FIRE SMOKE DAMPER', 'BD': 'BACKDRAFT DAMPER',
+    'L': 'LOUVER', 'LVR': 'LOUVER',
+    'GR': 'AD-GRD', 'RG': 'AD-GRD', 'SD': 'AD-GRD', 'CD': 'AD-GRD',
+    'SA': 'AD-GRD', 'RA': 'AD-GRD', 'EA': 'AD-GRD', 'SB': 'AD-GRD',
+    'LD': 'AD-LINEAR PLENUM',
+}
+
+
+def _infer_class_from_tag(tag):
+    """Infer YOLO class from tag prefix. E.g., EF-1 → EXHAUST FAN."""
+    if not tag:
+        return None
+    tag_upper = tag.upper()
+    # Try longest prefix first (EUH before E)
+    for prefix_len in range(4, 0, -1):
+        prefix = tag_upper[:prefix_len]
+        if prefix in TAG_PREFIX_CLASS:
+            return TAG_PREFIX_CLASS[prefix]
+    return None
+
+
 def _infer_yolo_class_from_service(service_text, mounting_text=''):
     """
     Map schedule SERVICE/TYPE + MOUNTING to a YOLO class name.
@@ -119,7 +149,10 @@ def build_class_to_tags(mark_details, schedules):
             etype = _get(row, type_idx)
             mounting = _get(row, mount_idx)
 
+            # Try service text first, then tag prefix, then fallback
             yolo_class = _infer_yolo_class_from_service(etype, mounting)
+            if not yolo_class:
+                yolo_class = _infer_class_from_tag(tag)
             if not yolo_class:
                 yolo_class = 'AD-GRD'
 
