@@ -324,17 +324,16 @@ def find_mechanical_pages(pdf_path):
     Looks for HVAC keywords in the page text.
     """
     doc = fitz.open(pdf_path)
+    total = doc.page_count
     candidate_pages = []
-    for pi in range(doc.page_count):
+    for pi in range(total):
         text = doc[pi].get_text().upper()
-        # Skip pure schedule/legend pages
         if any(kw in text for kw in ['MECHANICAL PLAN', 'CEILING PLAN', 'HVAC PLAN', 'VENTILATION PLAN', 'FLOOR PLAN']):
             candidate_pages.append(pi)
     doc.close()
 
-    # If no clear matches, return all pages
     if not candidate_pages:
-        return list(range(doc.page_count if doc else 0))
+        return list(range(total))
     return candidate_pages
 
 
