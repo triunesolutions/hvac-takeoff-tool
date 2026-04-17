@@ -136,10 +136,6 @@ def build_class_to_tags(mark_details, schedules):
             if not tag or 'Total' in tag or len(tag) > 25:
                 continue
 
-            # Skip VAV and other non-GRD tags
-            tag_upper = tag.upper().replace('\n', ' ')
-            if any(tag_upper.startswith(p) for p in ('VAV', 'AHU', 'FCU', 'RTU', 'EF-', 'SF-')):
-                continue
             # Skip pure multi-line garbage
             if '\n' in tag:
                 continue
@@ -281,13 +277,18 @@ def level2_size_cfm_matching(detections, schedule_tags, mark_details, pdf_path, 
     if not mark_details:
         return detections, {'level': 2, 'method': 'size_cfm', 'tagged': 0, 'total': 0}
 
-    # Build reverse index: (size or cfm) → tag
+    # Build reverse index: any distinctive value → tag
     value_to_tag = {}
     for tag, details in mark_details.items():
-        for key in ('SIZE', 'NECK SIZE', 'SIZE\n(NECK)', 'CFM', 'CFM\nRANGE'):
-            val = details.get(key, '').strip().upper().replace('"', '').replace("'", '')
-            if val and val not in ('.', '-', 'N/A'):
-                value_to_tag[val] = tag
+        for key, val in details.items():
+            val = str(val).strip().upper().replace('"', '').replace("'", '')
+            # Skip generic/empty values
+            if not val or val in ('.', '-', 'N/A', 'NONE', '') or len(val) > 30:
+                continue
+            # Skip common non-distinctive words
+            if val in ('SURFACE', 'LAY-IN', 'CEILING', 'SUPPLY', 'RETURN', 'YES', 'NO'):
+                continue
+            value_to_tag[val] = tag
 
     tagged = 0
     for det in detections:
