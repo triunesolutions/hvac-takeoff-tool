@@ -51,53 +51,9 @@ JUNK_TAGS = {
     'VAV', 'FCU', 'AHU', 'RTU',  # prefix-only (need number)
 }
 
-# Equipment types the team does NOT take off — filter from final output.
-# Current focus: GRD (Grilles, Registers, Diffusers) only.
-# Mechanical equipment (fans, AHUs, VAVs, etc.) is handled separately.
-EXCLUDE_PREFIXES = {
-    # Terminal / AHU equipment
-    'VAV',   # Variable Air Volume boxes
-    'AHU',   # Air Handling Units
-    'FCU',   # Fan Coil Units
-    'RTU',   # Rooftop Units
-    'MUA',   # Make-Up Air units
-    'ERV',   # Energy Recovery Ventilators
-    'PTAC',  # Packaged Terminal AC
-    'HRV',   # Heat Recovery Ventilators
-
-    # Fans
-    'EF',    # Exhaust Fans
-    'SF',    # Supply Fans
-    'KEF',   # Kitchen Exhaust Fans
-    'CUH',   # Cabinet Unit Heaters
-
-    # Heating equipment
-    'EH',    # Electric Heaters
-    'UH',    # Unit Heaters
-    'DH',    # Duct Heaters
-    'BH',    # Baseboard Heaters
-
-    # Cooling / refrigeration
-    'CU',    # Condensing Units
-    'HP',    # Heat Pumps
-    'SS',    # Split Systems
-    'VRF',   # VRF systems
-    'CR',    # Chillers / Refrigeration
-
-    # Humidifiers / misc equipment
-    'HUM',   # Humidifiers
-    'BFC',   # Boxes with fin coil
-    'BM',    # Mixing boxes
-    'RC',    # Roof curbs
-    'GV',    # Gravity ventilators
-}
-
-# What we DO want to keep — common GRD tag prefixes (for reference, not enforced):
-# A, B, C, D (Flex single-letter)
-# SC, SA, SB, RA, RB, EA, EB (St Elizabeth)
-# GR, GA, GE (grilles)
-# D (diffusers)
-# LD, LR, LS (linear diffusers/returns/slots)
+# No equipment type filtering — extract ALL tags from all schedules.
+# The team takes off everything: GRD, fans, heaters, dampers, etc.
+EXCLUDE_PREFIXES = set()
 
 
 def normalize_tag(raw):
