@@ -151,6 +151,11 @@ def normalize_tag(raw):
     if REFRIGERANT_PATTERN.match(s):
         return None
 
+    # Drawing sheet numbers (M101, E202, P301) — single letter + 3 digits.
+    # Equipment tags never use this pattern; sheet indexes always do.
+    if re.match(r'^[A-Za-z]\d{3}$', s):
+        return None
+
     # Reject cell labels that leaked in from adjacent columns
     prefix_m = re.match(r'^([A-Z]+)', s.upper())
     if prefix_m and prefix_m.group(1) in BANNED_TAG_PREFIXES:
@@ -360,28 +365,46 @@ def extract_schedules_and_marks(pdf_path):
                         break
 
                 # --- Property-based detection fallback ---
-                # If no MARK/TAG found, check if table has enough property keywords
-                # to be a schedule (then use first row as tags)
-                if header_row_idx is None and not page_has_schedule:
-                    # Check if any row has 3+ property keywords
+                # If no explicit MARK/TAG column found, look for a header row
+                # identified by 3+ property keywords (TYPE, MODEL, SIZE, CFM, ...).
+                # Require equipment-specific keywords (not just "NOTES") so we
+                # don't mistake a drawing index for a schedule.
+                if header_row_idx is None:
+                    header_detection_kws = ('TYPE', 'MODEL', 'SIZE', 'CFM', 'MANUFACTURER',
+                                             'DESCRIPTION', 'CAPACITY', 'NECK', 'SERVICE',
+                                             'MAKE', 'MOUNTING', 'REMARK')
                     for r_idx, row in enumerate(table):
-                        row_props = sum(1 for cell in row if cell and
-                                        any(kw in str(cell).upper() for kw in PROPERTY_KEYWORDS))
-                        if row_props >= 3:
+                        row_strs = [str(c).strip().upper() for c in row if c]
+                        if not row_strs:
+                            continue
+                        prop_count = sum(
+                            1 for s in row_strs
+                            if any(kw in s for kw in header_detection_kws) and len(s) < 30
+                        )
+                        if prop_count >= 3:
+                            header_row_idx = r_idx
                             page_has_schedule = True
                             break
 
                 if header_row_idx is None and not page_has_schedule:
                     continue
 
-                # Schedule name (from rows above header)
+                # Schedule name (from rows above header).
+                # Skip prose-like rows (contractor notes, descriptions) — the
+                # schedule title is usually a short phrase with "SCHEDULE" in it.
                 schedule_name = ""
                 if header_row_idx is not None:
                     for up in range(header_row_idx - 1, -1, -1):
                         cells = [str(c).strip() for c in table[up] if c not in [None, ""]]
-                        if cells:
-                            schedule_name = " ".join(cells[:3])
-                            break
+                        if not cells:
+                            continue
+                        candidate = " ".join(cells[:3])
+                        # Skip long prose (likely a note, not a title)
+                        if len(candidate) > 80 or candidate.count(' ') > 10:
+                            continue
+                        # Prefer rows that look like titles
+                        schedule_name = candidate
+                        break
 
                 # Build header + data rows
                 header = None
@@ -416,10 +439,24 @@ def extract_schedules_and_marks(pdf_path):
                             mark_col_indices.append(i)
                             break
 
-                # Description columns (for extracting embedded tags, and for details)
+                # If no explicit MARK/TAG column found, check if column 0 holds
+                # tag-shaped values (short alphanumeric like "A1", "B1", "C-1").
+                # Schedules like AIR DEVICE SCHEDULE put tags in a "TYPE" column.
+                if not mark_col_indices and data_rows:
+                    first_val = ''
+                    for row in data_rows:
+                        if row and row[0] and str(row[0]).strip():
+                            first_val = str(row[0]).strip()
+                            break
+                    if first_val and re.match(r'^[A-Za-z]{1,4}-?\d{1,3}[A-Za-z]?$', first_val):
+                        mark_col_indices.append(0)
+
+                # Description columns (for extracting embedded tags, and for details).
+                # Exclude the mark column so we don't treat tag values as description.
                 desc_col_indices = [
                     i for i, h in enumerate(header_upper)
                     if any(kw in h for kw in ["DESCRIPTION", "TYPE", "MODEL", "SIZE", "CAPACITY", "SERVICE", "REMARK"])
+                    and i not in mark_col_indices
                 ]
 
                 # Convert rows to dicts
