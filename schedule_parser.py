@@ -18,6 +18,8 @@ import re
 from collections import defaultdict
 import pdfplumber
 
+from tag_inference import _infer_yolo_class_from_service, _infer_class_from_tag
+
 
 # Tag validation regex — valid tag patterns we accept
 TAG_REGEX = re.compile(r'^[A-Z]{1,5}(?:[-\s]?[A-Z0-9]{1,4})*$')
@@ -143,14 +145,79 @@ def split_compound_cell(cell_value):
     return [p.strip() for p in parts if p.strip()]
 
 
+def expand_range(cell_value):
+    """
+    Expand range notation like 'CU-1 thru CU-6' to ['CU-1','CU-2',...,'CU-6'].
+    Also handles 'CU-1 through CU-6' and 'CU-1 to CU-6'.
+    Returns None if cell is not a range.
+    """
+    if not cell_value:
+        return None
+    s = ' '.join(str(cell_value).upper().split())
+    # Match "PREFIX-N thru/through/to PREFIX-M" (prefix may repeat or be omitted)
+    m = re.match(
+        r'^([A-Z]{1,4})-?(\d+)\s*(?:THRU|THROUGH|TO|\-|\u2013|\u2014)\s*(?:([A-Z]{1,4})-?)?(\d+)$',
+        s
+    )
+    if not m:
+        return None
+    prefix1, start, prefix2, end = m.groups()
+    if prefix2 and prefix1 != prefix2:
+        return None
+    try:
+        start_n, end_n = int(start), int(end)
+    except ValueError:
+        return None
+    if end_n < start_n or end_n - start_n > 100:
+        return None
+    return [f"{prefix1}-{i}" for i in range(start_n, end_n + 1)]
+
+
+def expand_tag_cell(raw):
+    """
+    Return a list of normalized tags from a cell. Handles:
+      - single tag:  'A-1'             -> ['A-1']
+      - compound:    'A, B, C'         -> ['A','B','C']
+      - range:       'CU-1 thru CU-6'  -> ['CU-1','CU-2',...,'CU-6']
+    """
+    if not raw:
+        return []
+    ranged = expand_range(raw)
+    if ranged:
+        return [t for t in (normalize_tag(r) for r in ranged) if t]
+    parts = split_compound_cell(raw)
+    return [t for t in (normalize_tag(p) for p in parts) if t]
+
+
+def _prop_lookup(props, keywords):
+    """
+    Find first value in props dict whose key contains any of the keywords.
+    Case/whitespace-insensitive. Returns '' if nothing matches.
+    """
+    if not props:
+        return ''
+    kw_upper = [k.upper() for k in keywords]
+    for k, v in props.items():
+        k_norm = ' '.join(str(k).upper().split())
+        for kw in kw_upper:
+            if kw in k_norm:
+                return v
+    return ''
+
+
 def extract_schedules_and_marks(pdf_path):
     """
     Extract schedule tables and equipment marks from a PDF.
     v2: heavy validation, noise filtering.
+
+    Returns (schedule_tables, marks_list, mark_details, variables) where
+    variables is a list of TagVariable dicts — one per (tag, source_row) — with
+    the full row properties preserved and an inferred YOLO class attached.
     """
     schedule_tables = []
     marks_set = set()
     mark_details = {}
+    variables = []
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_index, page in enumerate(pdf.pages):
@@ -296,19 +363,15 @@ def extract_schedules_and_marks(pdf_path):
                     "rows": table_dict_rows,
                 })
 
-                # Extract tags
+                # Extract tags and build TagVariables
                 for row_idx, row in enumerate(data_rows):
-                    # Primary: tags from MARK/TAG columns
+                    # Primary: tags from MARK/TAG columns (supports compound + range)
                     row_tags = []
                     for mark_col in mark_col_indices:
                         if mark_col >= len(row):
                             continue
-                        raw = row[mark_col]
-                        # Support compound cells "A, B, C"
-                        parts = split_compound_cell(raw)
-                        for p in parts:
-                            tag = normalize_tag(p)
-                            if tag:
+                        for tag in expand_tag_cell(row[mark_col]):
+                            if tag and tag not in row_tags:
                                 row_tags.append(tag)
 
                     # Secondary: scan description columns for embedded tag patterns
@@ -324,17 +387,46 @@ def extract_schedules_and_marks(pdf_path):
                         if tag and tag not in row_tags:
                             row_tags.append(tag)
 
-                    # Store tags + details
+                    if not row_tags:
+                        continue
+
+                    # Build full properties dict — EVERY column except the tag column(s).
+                    # Normalize both keys (column headers) and values: collapse whitespace
+                    # so multi-line headers like "MANUFACTURER\n& MODEL" become
+                    # "MANUFACTURER & MODEL" — stable and readable downstream.
+                    full_props = {}
+                    for col_idx, col_name in enumerate(header):
+                        if col_idx in mark_col_indices:
+                            continue
+                        raw_key = col_name if col_name else f"COL_{col_idx+1}"
+                        key = ' '.join(str(raw_key).split()) or f"COL_{col_idx+1}"
+                        value = row[col_idx] if col_idx < len(row) else ""
+                        if value and str(value).strip():
+                            full_props[key] = ' '.join(str(value).split())
+
+                    # Infer YOLO class from the row (once per row, shared across tags)
+                    service_text = _prop_lookup(full_props, ('SERVICE', 'TYPE', 'DESCRIPTION'))
+                    mounting_text = _prop_lookup(full_props, ('MOUNTING', 'MOUNT'))
+                    inferred_class = _infer_yolo_class_from_service(service_text, mounting_text)
+                    if not inferred_class and row_tags:
+                        inferred_class = _infer_class_from_tag(row_tags[0])
+
+                    # One variable per tag, with the full row as properties
                     for tag in row_tags:
                         marks_set.add(tag)
-                        details = {}
-                        for desc_col in desc_col_indices:
-                            if desc_col < len(row) and row[desc_col] and row[desc_col].strip():
-                                details[header[desc_col]] = row[desc_col].strip()
-                        if details and tag not in mark_details:
-                            mark_details[tag] = details
+                        # Legacy mark_details — first occurrence wins, now with ALL columns
+                        if tag not in mark_details:
+                            mark_details[tag] = dict(full_props)
+                        variables.append({
+                            'tag': tag,
+                            'schedule_name': schedule_name,
+                            'page': page_index + 1,
+                            'properties': dict(full_props),
+                            'inferred_yolo_class': inferred_class,
+                            'source_row_index': row_idx,
+                        })
 
-    return schedule_tables, sorted(list(marks_set)), mark_details
+    return schedule_tables, sorted(list(marks_set)), mark_details, variables
 
 
 def extract_legend_info(pdf_path):
@@ -387,19 +479,25 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
     """
     Main entry point.
 
-    exclude_prefixes: set of equipment type prefixes to exclude (default: VAV).
-    Pass exclude_prefixes=set() to get ALL tags including VAV.
+    exclude_prefixes: set of equipment type prefixes to exclude (default: none).
+    Pass exclude_prefixes=set() to get ALL tags.
+
+    Returns (schedules, marks, mark_details, legend, summary, variables).
+    `variables` is a list of TagVariable dicts — one per (tag, source_row) pair —
+    each with the full schedule row preserved in its 'properties' field and an
+    inferred YOLO class. This is the recommended structure for downstream work.
     """
     if exclude_prefixes is None:
         exclude_prefixes = EXCLUDE_PREFIXES
 
-    schedules, marks, mark_details = extract_schedules_and_marks(pdf_path)
+    schedules, marks, mark_details, variables = extract_schedules_and_marks(pdf_path)
     legend = extract_legend_info(pdf_path)
 
     # Filter out excluded equipment types (e.g., VAV boxes)
     if exclude_prefixes:
         filtered_marks = [m for m in marks if get_mark_type(m) not in exclude_prefixes]
         filtered_details = {m: d for m, d in mark_details.items() if get_mark_type(m) not in exclude_prefixes}
+        variables = [v for v in variables if get_mark_type(v['tag']) not in exclude_prefixes]
         excluded_count = len(marks) - len(filtered_marks)
         marks = filtered_marks
         mark_details = filtered_details
@@ -417,33 +515,72 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
         'excluded_count': excluded_count,
         'types': dict(type_counts),
         'marks': marks,
+        'total_variables': len(variables),
     }
 
-    return schedules, marks, mark_details, legend, summary
+    return schedules, marks, mark_details, legend, summary, variables
+
+
+def dump_variables(variables, file=None):
+    """
+    Write a human-readable dump of all extracted variables, grouped by schedule.
+    Pass file=None to print to stdout.
+    """
+    import sys
+    out = file or sys.stdout
+
+    if not variables:
+        out.write("\nNo variables extracted.\n")
+        return
+
+    grouped = defaultdict(list)
+    for v in variables:
+        key = (v.get('page', 0), v.get('schedule_name') or '(unnamed schedule)')
+        grouped[key].append(v)
+
+    out.write("\n" + "=" * 70 + "\n")
+    out.write("SCHEDULE EXTRACTION VERIFICATION\n")
+    out.write("=" * 70 + "\n")
+
+    for (page, name), vlist in sorted(grouped.items()):
+        header_line = f"\nSchedule: {name} (page {page}) — {len(vlist)} variable(s)"
+        out.write(header_line + "\n")
+        out.write("-" * min(len(header_line), 70) + "\n")
+
+        for v in vlist:
+            tag = v.get('tag', '?')
+            out.write(f"  {tag}\n")
+            props = v.get('properties') or {}
+            max_key = max((len(str(k)) for k in props.keys()), default=0)
+            for k, val in props.items():
+                clean_val = ' '.join(str(val).split())
+                if not clean_val:
+                    continue
+                out.write(f"    {str(k).ljust(max_key)}   {clean_val}\n")
+            ic = v.get('inferred_yolo_class')
+            if ic:
+                out.write(f"    -> Inferred class: {ic}\n")
+            out.write("\n")
+
+    out.write(f"TOTAL: {len(variables)} variables across {len(grouped)} schedule(s)\n")
 
 
 if __name__ == "__main__":
     import sys as _sys
     if len(_sys.argv) < 2:
-        print("Usage: python schedule_parser.py path/to/blueprint.pdf")
+        print("Usage: python schedule_parser.py path/to/blueprint.pdf [--verify]")
         _sys.exit(1)
 
     pdf = _sys.argv[1]
+    verify = '--verify' in _sys.argv[2:]
     print(f"Parsing: {pdf}")
 
-    schedules, marks, details, legend, summary = parse_pdf_schedules(pdf)
+    schedules, marks, details, legend, summary, variables = parse_pdf_schedules(pdf)
 
     print(f"\nSchedules found: {summary['total_schedules']}")
     print(f"Equipment marks: {summary['total_marks']}")
+    print(f"Variables:       {summary['total_variables']}")
     print(f"Legend items:    {summary['legend_items']}")
-
-    if marks:
-        print(f"\nMarks ({len(marks)}):")
-        for m in marks:
-            detail_str = ""
-            if m in details:
-                detail_str = " | " + ", ".join(f"{k}={v[:30]}" for k, v in details[m].items())
-            print(f"  {m}{detail_str}")
 
     if summary['types']:
         print(f"\nBy type:")
@@ -454,3 +591,6 @@ if __name__ == "__main__":
         print(f"\nSchedule tables:")
         for s in schedules:
             print(f"  Page {s['page']}: {s['schedule_name'][:50] or '(unnamed)'} - {len(s['rows'])} rows")
+
+    if verify:
+        dump_variables(variables)

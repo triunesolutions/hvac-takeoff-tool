@@ -17,6 +17,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 sys.stdout.reconfigure(line_buffering=True)
 
 import os
+import json
 import argparse
 import time
 from pathlib import Path
@@ -28,7 +29,7 @@ import numpy as np
 
 from tag_extractor import summarize_detections_by_tag
 from tag_inference import infer_tags
-from schedule_parser import parse_pdf_schedules
+from schedule_parser import parse_pdf_schedules, dump_variables
 
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -193,6 +194,19 @@ def annotate_pdf(input_pdf, output_pdf, detections_per_page):
 
 # ─── EXCEL OUTPUT ─────────────────────────────────────────────────────────────
 
+def _prop(details, keywords):
+    """Tolerant property lookup: any key containing any keyword (case-insensitive)."""
+    if not details:
+        return ''
+    kw_upper = [k.upper() for k in keywords]
+    for k, v in details.items():
+        k_norm = ' '.join(str(k).upper().split())
+        for kw in kw_upper:
+            if kw in k_norm:
+                return str(v)
+    return ''
+
+
 def write_excel(output_path, detections_per_page, project_name, schedule_details=None):
     """Write Excel takeoff matching team's format."""
     try:
@@ -238,29 +252,33 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
     total = 0
     current_cls = None
     for (cls, tag), data in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
-        # Lookup schedule details for this tag
+        # Lookup schedule details for this tag (tolerant of header variations)
         details = schedule_details.get(tag, {})
-        brand = details.get('MANUFACTURER\n& MODEL', details.get('MANUFACTURER', '')).split('\n')[0]
-        model = details.get('MANUFACTURER\n& MODEL', details.get('MODEL', '')).split('\n')[-1] if '\n' in details.get('MANUFACTURER\n& MODEL', '') else details.get('MODEL', '')
-        neck_size = details.get('SIZE\n(NECK)', details.get('SIZE', details.get('NECK SIZE', '')))
-        etype = details.get('SERVICE', details.get('TYPE', ''))
-        mounting = details.get('MOUNTING', '')
-        remark = details.get('REMARKS', details.get('REMARK', ''))
-
-        # Clean multi-line text
-        for v in [brand, model, neck_size, etype, mounting, remark]:
-            if isinstance(v, str):
-                v = ' '.join(v.split())
+        # Prefer a combined column like "MANUFACTURER & MODEL" or "MAKE / MODEL".
+        # Split on " / " if present (MAKE/MODEL convention), else first space.
+        brand_model = _prop(details, ['MANUFACTURER & MODEL', 'MAKE / MODEL', 'MAKE/MODEL'])
+        if brand_model and ' / ' in brand_model:
+            brand, model = brand_model.split(' / ', 1)
+        elif brand_model and ' ' in brand_model:
+            brand, model = brand_model.split(' ', 1)
+        elif brand_model:
+            brand, model = brand_model, ''
+        else:
+            brand = _prop(details, ['MANUFACTURER', 'BRAND', 'MAKE'])
+            model = _prop(details, ['MODEL NUMBER', 'MODEL'])
+        neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
+        etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
+        mounting = _prop(details, ['MOUNTING', 'MOUNT'])
 
         ws.cell(row=row, column=1, value=cls if cls != current_cls else '')
         current_cls = cls
-        ws.cell(row=row, column=2, value=' '.join(brand.split()) if brand else '')
-        ws.cell(row=row, column=3, value=' '.join(model.split()) if model else '')
+        ws.cell(row=row, column=2, value=brand)
+        ws.cell(row=row, column=3, value=model)
         ws.cell(row=row, column=4, value=data['count'])
         ws.cell(row=row, column=5, value=tag)
-        ws.cell(row=row, column=6, value=' '.join(str(neck_size).split()) if neck_size else '')
-        ws.cell(row=row, column=9, value=' '.join(str(etype).split()) if etype else '')
-        ws.cell(row=row, column=10, value=' '.join(str(mounting).split()) if mounting else '')
+        ws.cell(row=row, column=6, value=neck_size)
+        ws.cell(row=row, column=9, value=etype)
+        ws.cell(row=row, column=10, value=mounting)
         ws.cell(row=row, column=11, value=f"Pages: {', '.join(str(p) for p in sorted(data['pages']))}")
         total += data['count']
         row += 1
@@ -294,18 +312,22 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
         for d in sorted(detections_per_page[page_idx], key=lambda x: (x['cls'], x.get('tag') or '')):
             tag = d.get('tag') or ''
             details = schedule_details.get(tag, {})
-            brand = details.get('MANUFACTURER\n& MODEL', details.get('MANUFACTURER', '')).split('\n')[0]
-            model = details.get('MANUFACTURER\n& MODEL', details.get('MODEL', '')).split('\n')[-1] if '\n' in details.get('MANUFACTURER\n& MODEL', '') else details.get('MODEL', '')
-            neck_size = details.get('SIZE\n(NECK)', details.get('SIZE', ''))
-            etype = details.get('SERVICE', details.get('TYPE', ''))
+            brand_model = _prop(details, ['MANUFACTURER & MODEL', 'MANUFACTURER'])
+            if brand_model and ' ' in brand_model and not _prop(details, ['MODEL']):
+                brand, model = brand_model.split(' ', 1)
+            else:
+                brand = _prop(details, ['MANUFACTURER', 'BRAND'])
+                model = _prop(details, ['MODEL'])
+            neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
+            etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
 
             ws2.cell(row=row, column=1, value=d['cls'])
-            ws2.cell(row=row, column=2, value=' '.join(str(brand).split()))
-            ws2.cell(row=row, column=3, value=' '.join(str(model).split()))
+            ws2.cell(row=row, column=2, value=brand)
+            ws2.cell(row=row, column=3, value=model)
             ws2.cell(row=row, column=4, value=1)
             ws2.cell(row=row, column=5, value=tag)
-            ws2.cell(row=row, column=6, value=' '.join(str(neck_size).split()))
-            ws2.cell(row=row, column=9, value=' '.join(str(etype).split()))
+            ws2.cell(row=row, column=6, value=neck_size)
+            ws2.cell(row=row, column=9, value=etype)
             row += 1
 
     ws2.column_dimensions['A'].width = 8
@@ -345,6 +367,10 @@ def main():
     parser.add_argument('--output-dir', default=None, help='Output directory (default: same as PDF)')
     parser.add_argument('--all-pages', action='store_true', help='Process all pages (not just mechanical)')
     parser.add_argument('--pages', type=int, nargs='+', help='Specific page numbers (1-indexed)')
+    parser.add_argument('--verify', action='store_true',
+                        help='Print full schedule variable dump and exit (no detection run)')
+    parser.add_argument('--schedule-only', action='store_true',
+                        help='Parse schedule and write variables JSON, skip YOLO detection')
     args = parser.parse_args()
 
     pdf_path = Path(args.pdf).resolve()
@@ -352,7 +378,7 @@ def main():
         print(f"ERROR: {pdf_path} not found")
         sys.exit(1)
 
-    if not Path(args.model).exists():
+    if not args.schedule_only and not Path(args.model).exists():
         print(f"ERROR: Model not found: {args.model}")
         sys.exit(1)
 
@@ -369,6 +395,39 @@ def main():
     print(f"Model:    {args.model}")
     print(f"Conf:     {args.conf}")
     print(f"Output:   {out_dir}")
+    print()
+
+    # Parse schedule first — always, even in --schedule-only mode
+    print("Parsing schedule...")
+    variables = []
+    try:
+        schedules, marks, mark_details, legend, sched_summary, variables = parse_pdf_schedules(str(pdf_path))
+        print(f"  {len(schedules)} schedule table(s), {len(marks)} unique tag(s), "
+              f"{len(variables)} variable(s)")
+        if marks:
+            print(f"  Sample tags: {marks[:10]}{'...' if len(marks) > 10 else ''}")
+    except Exception as e:
+        print(f"  Schedule parse failed: {e}")
+        schedules, marks, mark_details = [], [], {}
+
+    # Always write variables JSON sidecar
+    variables_path = out_dir / f"{pdf_path.stem}_variables.json"
+    try:
+        with open(variables_path, 'w', encoding='utf-8') as f:
+            json.dump(variables, f, indent=2, default=str, ensure_ascii=False)
+        print(f"  Wrote {len(variables)} variables to {variables_path.name}")
+    except Exception as e:
+        print(f"  (JSON sidecar failed: {e})")
+
+    # Verification dump to stdout
+    if args.verify or args.schedule_only:
+        dump_variables(variables)
+
+    # Early exit if schedule-only
+    if args.schedule_only:
+        print(f"\n--schedule-only: skipping detection. Output in {out_dir}")
+        return
+
     print()
 
     # Load model
@@ -392,16 +451,6 @@ def main():
             pages_to_process = list(range(total_pages))
 
     print(f"Processing {len(pages_to_process)} page(s) of {total_pages} total\n")
-
-    # Parse schedule first — need tags for inference
-    print("Parsing schedule...")
-    try:
-        schedules, marks, mark_details, legend, sched_summary = parse_pdf_schedules(str(pdf_path))
-        print(f"  Found {len(marks)} GRD tags: {marks[:10]}{'...' if len(marks)>10 else ''}")
-    except Exception as e:
-        print(f"  Schedule parse failed: {e}")
-        schedules, marks, mark_details = [], [], {}
-    print()
 
     # Process each page
     detections_per_page = {}

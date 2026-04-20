@@ -387,7 +387,7 @@ if __name__ == "__main__":
     print(f"Testing tag inference on: {pdf}")
 
     from schedule_parser import parse_pdf_schedules
-    schedules, marks, mark_details, legend, summary = parse_pdf_schedules(pdf)
+    schedules, marks, mark_details, legend, summary, variables = parse_pdf_schedules(pdf)
     print(f"\nSchedule: {len(marks)} tags found: {marks}")
 
     # Simulate some detections (in real use, YOLO provides these)
