@@ -51,6 +51,20 @@ JUNK_TAGS = {
     'TYPE', 'TYP', 'MARK', 'TAG', 'NO.', 'REF.', 'NOTE', 'NOTES',
     'N.T.S.', 'NTS', 'SEE', 'ALL', 'EACH', 'TOTAL', 'COL_1',
     'VAV', 'FCU', 'AHU', 'RTU',  # prefix-only (need number)
+    'RR',  # junk fragment seen in Aritzia schedule
+}
+
+# Refrigerant designations commonly appear in schedules as a dedicated row
+# (e.g., R-410A, R-454B, R-32) — they pass the tag regex but are NOT tags.
+REFRIGERANT_PATTERN = re.compile(r'^R-?\d{2,4}[A-Z]?$', re.IGNORECASE)
+
+# Cell values that match the tag regex shape but are clearly not equipment
+# tags — typically labels from adjacent columns like "NOTES: 1" that got
+# merged into the MARK cell during table extraction.
+BANNED_TAG_PREFIXES = {
+    'NOTES', 'NOTE', 'ROUTING', 'ROUTE', 'SCHEDULE', 'SCHED',
+    'DETAIL', 'PAGE', 'SHEET', 'DWG', 'REF', 'SEE',
+    'REV', 'DATE', 'ITEM',
 }
 
 # No equipment type filtering — extract ALL tags from all schedules.
@@ -63,6 +77,12 @@ def normalize_tag(raw):
     if not raw:
         return None
     s = str(raw).strip()
+    if not s:
+        return None
+
+    # Strip equipment-status prefixes used on drawings: "(E)" = existing,
+    # "(R)" = relocated, "(N)" = new. They are not part of the tag.
+    s = re.sub(r'^\(\s*[ERN]\s*\)\s*', '', s, flags=re.IGNORECASE).strip()
     if not s:
         return None
 
@@ -127,6 +147,15 @@ def normalize_tag(raw):
     if s.upper() in JUNK_TAGS:
         return None
 
+    # Refrigerant codes (R-410A, R-454B, R-32) — never equipment tags
+    if REFRIGERANT_PATTERN.match(s):
+        return None
+
+    # Reject cell labels that leaked in from adjacent columns
+    prefix_m = re.match(r'^([A-Z]+)', s.upper())
+    if prefix_m and prefix_m.group(1) in BANNED_TAG_PREFIXES:
+        return None
+
     # Must have digits OR be a short letter sequence (single-letter tags like A, B, C, D)
     has_digit = bool(re.search(r'\d', s))
     if not has_digit and len(s) > 2:
@@ -141,13 +170,30 @@ def normalize_tag(raw):
 
 
 def split_compound_cell(cell_value):
-    """Split a cell like 'A, B, C' or 'D / E' into individual tags."""
+    """
+    Split a cell like 'A, B, C' or 'D / E' into individual tags.
+    Also handles the 'PREFIX-N1, N2, N3' shorthand common on drawings where
+    one tag cell covers several equipment numbers sharing a row:
+      'AC-1,2'   -> ['AC-1', 'AC-2']
+      'CU-1,2,3' -> ['CU-1', 'CU-2', 'CU-3']
+    """
     if not cell_value:
         return []
     s = str(cell_value).strip()
-    # Split on common separators
-    parts = re.split(r'[,;/&]', s)
-    return [p.strip() for p in parts if p.strip()]
+    parts = [p.strip() for p in re.split(r'[,;/&]', s) if p.strip()]
+    if not parts:
+        return []
+
+    # Shorthand expansion: first part is PREFIX-N, following parts are bare numbers.
+    # Strip any "(E)" / "(R)" / "(N)" status marker before the prefix.
+    first_clean = re.sub(r'^\(\s*[ERN]\s*\)\s*', '', parts[0].upper().strip(),
+                          flags=re.IGNORECASE).strip()
+    m = re.match(r'^([A-Z]+)-(\d+)$', first_clean)
+    if m and len(parts) > 1 and all(re.fullmatch(r'\d+', p.strip()) for p in parts[1:]):
+        prefix = m.group(1)
+        return [parts[0]] + [f"{prefix}-{p.strip()}" for p in parts[1:]]
+
+    return parts
 
 
 def expand_range(cell_value):
@@ -405,16 +451,34 @@ def extract_schedules_and_marks(pdf_path):
                                 row_tags.append(tag)
 
                     # Secondary: scan description columns for embedded tag patterns
-                    # e.g., REMARKS = "LD-1-PLENUM installed" -> extract LD-1
+                    # e.g., REMARKS = "LD-1-PLENUM installed" -> extract LD-1.
+                    # Only scan description/type/remarks columns that are unlikely
+                    # to contain model numbers or refrigerant codes.
+                    # Require the tag prefix to be a known HVAC prefix — otherwise
+                    # MODEL values like "MP-2-72", "DAX0904A", and refrigerants
+                    # like "R-454B" get mistakenly extracted as tags.
                     desc_text_parts = []
                     for desc_col in desc_col_indices:
-                        if desc_col < len(row) and row[desc_col]:
-                            desc_text_parts.append(str(row[desc_col]))
+                        if desc_col >= len(row) or not row[desc_col]:
+                            continue
+                        header_name = header_upper[desc_col] if desc_col < len(header_upper) else ''
+                        # Skip columns that explicitly hold model/part numbers
+                        if any(skip in header_name for skip in
+                               ('MODEL', 'PART', 'REFRIGERANT', 'SERIAL', 'MANUFACTURER')):
+                            continue
+                        desc_text_parts.append(str(row[desc_col]))
                     desc_text = " ".join(desc_text_parts)
 
                     for m in TAG_IN_DESC.finditer(desc_text.upper()):
                         tag = normalize_tag(m.group(1))
-                        if tag and tag not in row_tags:
+                        if not tag or tag in row_tags:
+                            continue
+                        # Prefix must be a known HVAC equipment prefix
+                        prefix_match = re.match(r'^([A-Z]+)', tag)
+                        if not prefix_match:
+                            continue
+                        prefix = prefix_match.group(1)
+                        if prefix in TAG_PREFIX_CLASS or prefix in ('A', 'B', 'C', 'D'):
                             row_tags.append(tag)
 
                     if not row_tags:
