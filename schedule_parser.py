@@ -18,7 +18,7 @@ import re
 from collections import defaultdict
 import pdfplumber
 
-from tag_inference import _infer_yolo_class_from_service, _infer_class_from_tag
+from tag_inference import _infer_yolo_class_from_service, _infer_class_from_tag, TAG_PREFIX_CLASS
 
 
 # Tag validation regex — valid tag patterns we accept
@@ -130,7 +130,12 @@ def normalize_tag(raw):
     # Must have digits OR be a short letter sequence (single-letter tags like A, B, C, D)
     has_digit = bool(re.search(r'\d', s))
     if not has_digit and len(s) > 2:
-        return None
+        # Allow KNOWN_PREFIX-LETTER_SUFFIX (e.g., "VAV-N", "FCU-A") where the
+        # prefix is a recognized HVAC equipment prefix. This keeps legit tags
+        # like VAV-N while rejecting abbreviations like "U-C" or "USE-NT".
+        m = re.match(r'^([A-Za-z]{1,5})-[A-Za-z]{1,3}$', s)
+        if not m or m.group(1).upper() not in TAG_PREFIX_CLASS:
+            return None
 
     return s.upper()
 
@@ -173,15 +178,40 @@ def expand_range(cell_value):
     return [f"{prefix1}-{i}" for i in range(start_n, end_n + 1)]
 
 
+def split_multi_number_cell(raw):
+    """
+    Detect cells where one letter prefix is paired with multiple numbers,
+    e.g., '24\\nVAV\\n27' or '24 VAV 27' meaning BOTH VAV-24 and VAV-27
+    share the same schedule row. Returns a list of tags, or None.
+    """
+    if not raw:
+        return None
+    s = str(raw).strip()
+    fragments = [f for f in re.split(r'\s+', s) if f]
+    fragments = [f.strip('.-,;:|/') for f in fragments if f.strip('.-,;:|/')]
+    if len(fragments) < 3:
+        return None
+    digits = [f for f in fragments if re.fullmatch(r'\d{1,3}', f)]
+    letters = [f for f in fragments if re.fullmatch(r'[A-Za-z]{1,5}', f)]
+    if len(digits) >= 2 and len(letters) == 1:
+        prefix = letters[0].upper()
+        return [f"{prefix}-{d}" for d in digits]
+    return None
+
+
 def expand_tag_cell(raw):
     """
     Return a list of normalized tags from a cell. Handles:
-      - single tag:  'A-1'             -> ['A-1']
-      - compound:    'A, B, C'         -> ['A','B','C']
-      - range:       'CU-1 thru CU-6'  -> ['CU-1','CU-2',...,'CU-6']
+      - single tag:   'A-1'             -> ['A-1']
+      - compound:     'A, B, C'         -> ['A','B','C']
+      - range:        'CU-1 thru CU-6'  -> ['CU-1','CU-2',...,'CU-6']
+      - multi-number: '24\\nVAV\\n27'    -> ['VAV-24','VAV-27']
     """
     if not raw:
         return []
+    multi = split_multi_number_cell(raw)
+    if multi:
+        return [t for t in (normalize_tag(m) for m in multi) if t]
     ranged = expand_range(raw)
     if ranged:
         return [t for t in (normalize_tag(r) for r in ranged) if t]
