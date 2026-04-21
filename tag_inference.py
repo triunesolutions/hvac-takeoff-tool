@@ -93,11 +93,32 @@ def _infer_yolo_class_from_service(service_text, mounting_text=''):
         if 'PLENUM' in combined:
             return 'AD-LINEAR PLENUM'
 
-    # Generic GRD fallback
-    if any(kw in combined for kw in ['DIFFUSER', 'GRILLE', 'REGISTER', 'SUPPLY', 'RETURN', 'EXHAUST']):
+    # Generic GRD fallback — broader keyword list for air device schedules
+    # that describe diffusers as "PERFORATED FACE", "PLAQUE", etc. rather than
+    # using "DIFFUSER" explicitly.
+    if any(kw in combined for kw in ['DIFFUSER', 'GRILLE', 'REGISTER',
+                                       'SUPPLY', 'RETURN', 'EXHAUST',
+                                       'PERFORATED', 'PLAQUE', 'FACE',
+                                       'LOUVERED', 'DROP', 'MOUNTED']):
         return 'AD-GRD'
 
     return None
+
+
+def build_class_to_tags_from_variables(variables):
+    """
+    Build YOLO_class -> {tag -> properties} mapping directly from TagVariable
+    list. Uses the `inferred_yolo_class` each variable already carries, which
+    is cleaner than re-inferring from raw schedule rows.
+    """
+    class_tags = defaultdict(dict)
+    for v in (variables or []):
+        cls = v.get('inferred_yolo_class')
+        tag = v.get('tag')
+        if not cls or not tag:
+            continue
+        class_tags[cls][tag] = v.get('properties') or {}
+    return dict(class_tags)
 
 
 def build_class_to_tags(mark_details, schedules):
@@ -211,7 +232,142 @@ def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
     }
 
 
-# ─── LEVEL 2: CFM/size text matching ────────────────────────────────────────
+# ─── LEVEL 2A: Fingerprint matching using TagVariable properties ────────────
+
+# Property values too generic to discriminate tags
+_GENERIC_VALUES = {
+    '', '-', '--', '---', '.', 'N/A', 'NA', 'NONE', 'TBD', 'NOTES',
+    'SURFACE', 'LAY-IN', 'CEILING', 'WALL', 'INLINE', 'FLOOR', 'ROOF',
+    'SUPPLY', 'RETURN', 'EXHAUST', 'OUTSIDE', 'MIXED', 'AIR',
+    'YES', 'NO', 'VARIES', 'ALL', 'TYP', 'SEE NOTES',
+    'ELECTRIC', 'GAS', 'HEAT PUMP', 'DX', 'HVAC',
+}
+
+
+def _clean_value(val):
+    """Normalize a property value for text matching."""
+    if not val:
+        return ''
+    return ' '.join(str(val).upper().replace('"', '').replace("'", '').split())
+
+
+def build_tag_fingerprints(variables):
+    """
+    For each tag, build a set of distinctive value tokens that can be matched
+    against nearby text on the drawing. A value is "distinctive" if it appears
+    on <=2 tags (so it can disambiguate detections of the same class).
+
+    Breaks compound values into tokens (e.g., "480V/3PH 28.7" -> {"480V","3PH","28.7"}).
+    """
+    from collections import defaultdict
+
+    # Collect all tokens per tag
+    tag_tokens = defaultdict(set)
+    token_tags = defaultdict(set)  # reverse: which tags use each token?
+
+    for v in variables:
+        tag = v.get('tag')
+        if not tag:
+            continue
+        for key, val in (v.get('properties') or {}).items():
+            clean = _clean_value(val)
+            if not clean or clean in _GENERIC_VALUES:
+                continue
+            # Break into tokens on whitespace/slashes — each token evaluated separately
+            for tok in re.split(r'[\s/,]+', clean):
+                tok = tok.strip('.()')
+                if len(tok) < 2 or tok in _GENERIC_VALUES:
+                    continue
+                # Must contain at least one digit to be a useful discriminator
+                # (purely verbal tokens like "CARRIER" would match every CU)
+                if not re.search(r'\d', tok):
+                    continue
+                tag_tokens[tag].add(tok)
+                token_tags[tok].add(tag)
+
+    # Fingerprint = tokens that are distinctive (shared by <=2 tags)
+    fingerprints = {}
+    for tag, tokens in tag_tokens.items():
+        distinctive = {t for t in tokens if len(token_tags[t]) <= 2}
+        fingerprints[tag] = distinctive
+    return fingerprints
+
+
+def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
+                                  class_to_tags, radius_pts=100):
+    """
+    Match untagged detections to specific tags using property fingerprints.
+
+    For each multi-tag class:
+      1. Build fingerprints (distinctive value tokens) per candidate tag.
+      2. For each untagged detection, read text near it from the PDF text layer.
+      3. Score (detection, tag) pairs by fingerprint overlap.
+      4. Greedy 1:1 assignment — highest-scoring pairs win first, each tag
+         claimed at most once per page (most equipment has one instance).
+    """
+    if not variables:
+        return detections, {'level': '2a', 'method': 'fingerprint', 'tagged': 0}
+
+    fingerprints = build_tag_fingerprints(variables)
+    if not fingerprints:
+        return detections, {'level': '2a', 'method': 'fingerprint', 'tagged': 0}
+
+    from collections import defaultdict
+    by_class = defaultdict(list)
+    for i, det in enumerate(detections):
+        if det.get('tag'):
+            continue
+        by_class[det.get('cls', '')].append(i)
+
+    tagged = 0
+    for cls, det_indices in by_class.items():
+        candidates = list((class_to_tags or {}).get(cls, {}).keys())
+        if len(candidates) < 2:
+            continue  # Single-tag classes handled by Level 1
+
+        # Score every (detection, candidate_tag) pair
+        scores = []  # (score, det_idx, tag)
+        for di in det_indices:
+            try:
+                nearby_words = extract_nearby_text(pdf_path, page_idx,
+                                                     detections[di],
+                                                     radius_pts=radius_pts)
+            except Exception:
+                continue
+            nearby_tokens = set()
+            for w in nearby_words:
+                clean = _clean_value(w)
+                for tok in re.split(r'[\s/,]+', clean):
+                    tok = tok.strip('.()')
+                    if len(tok) >= 2 and re.search(r'\d', tok):
+                        nearby_tokens.add(tok)
+
+            for tag in candidates:
+                fp = fingerprints.get(tag, set())
+                if not fp:
+                    continue
+                overlap = fp & nearby_tokens
+                if overlap:
+                    scores.append((len(overlap), di, tag))
+
+        # Greedy 1:1 assignment
+        scores.sort(key=lambda x: -x[0])
+        assigned_dets = set()
+        used_tags = set()
+        for score, di, tag in scores:
+            if di in assigned_dets or tag in used_tags:
+                continue
+            detections[di]['tag'] = tag
+            detections[di]['tag_method'] = 'fingerprint'
+            detections[di]['tag_confidence'] = min(0.5 + 0.15 * score, 0.95)
+            assigned_dets.add(di)
+            used_tags.add(tag)
+            tagged += 1
+
+    return detections, {'level': '2a', 'method': 'fingerprint', 'tagged': tagged}
+
+
+# ─── LEVEL 2B: CFM/size text matching (legacy fallback) ─────────────────────
 
 def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60):
     """
@@ -333,16 +489,27 @@ def level3_class_fallback(detections):
 
 # ─── MAIN ENTRY POINT ───────────────────────────────────────────────────────
 
-def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path):
+def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
+               variables=None):
     """
-    Run all 3 levels of tag inference on all detections.
+    Run all levels of tag inference on all detections.
+
+    Levels:
+      1.   Direct class->tag mapping when schedule has a single tag per class
+      2a.  Fingerprint matching using TagVariable properties (rich)
+      2b.  Legacy CFM/size matching from mark_details (fallback)
+      3.   Mark anything still untagged as no-tag
 
     Returns:
         detections_per_page (mutated with 'tag' fields)
         stats: dict with per-level results
     """
-    # Build class→tags mapping from schedule data
-    class_to_tags = build_class_to_tags(mark_details, schedules)
+    # Build class→tags mapping — prefer variables (clean, single source) when
+    # available, otherwise fall back to legacy schedule/mark_details inference.
+    if variables:
+        class_to_tags = build_class_to_tags_from_variables(variables)
+    else:
+        class_to_tags = build_class_to_tags(mark_details, schedules)
 
     all_stats = []
 
@@ -351,9 +518,19 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path):
         detections, stats1 = level1_direct_mapping(detections, marks, class_to_tags)
         all_stats.append(stats1)
 
-        # Level 2: CFM/size matching (only for untagged)
+        # Level 2a: Fingerprint matching using variables (preferred)
         untagged_count = sum(1 for d in detections if not d.get('tag'))
-        if untagged_count > 0 and mark_details:
+        if untagged_count > 0 and variables:
+            detections, stats2a = level2_fingerprint_matching(
+                detections, variables, pdf_path, page_idx, class_to_tags
+            )
+            all_stats.append(stats2a)
+
+        # Level 2b: Legacy CFM/size matching — only runs when we have no
+        # variables. It lacks class filtering and can cross-match tags across
+        # classes, so we skip it when the richer Level 2a has already run.
+        untagged_count = sum(1 for d in detections if not d.get('tag'))
+        if untagged_count > 0 and mark_details and not variables:
             detections, stats2 = level2_size_cfm_matching(
                 detections, marks, mark_details, pdf_path, page_idx
             )

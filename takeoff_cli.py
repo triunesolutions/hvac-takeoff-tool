@@ -477,7 +477,8 @@ def main():
     if detections_per_page:
         print("\nInferring tags...")
         detections_per_page, tag_stats = infer_tags(
-            detections_per_page, schedules, marks, mark_details, str(pdf_path)
+            detections_per_page, schedules, marks, mark_details, str(pdf_path),
+            variables=variables
         )
         print(f"  Tagged: {tag_stats['tagged']}/{tag_stats['total']} ({tag_stats['tagged_pct']:.0f}%)")
         for ls in tag_stats.get('levels', []):
