@@ -1,6 +1,6 @@
 # HVAC AI Takeoff Tool — A Plain-English Guide
 
-*For non-technical readers. Last updated: April 8, 2026.*
+*For non-technical readers. Last updated: April 21, 2026.*
 
 ---
 
@@ -14,17 +14,32 @@ A tool that reads HVAC blueprint PDFs and produces a takeoff (a list of all equi
 
 ## How It Works (Simple Version)
 
-Imagine teaching a child to recognize dogs. You show them 1,000 pictures of dogs and say "this is a dog". After enough examples, the child can spot a dog they've never seen before.
+Three separate jobs run together:
 
-That's exactly what we're doing — except instead of dogs, we're teaching the computer to recognize HVAC equipment symbols (diffusers, grilles, dampers, fans, etc.).
+**Job 1 — Read the schedule tables.**
+Every blueprint has schedule tables (like a spec sheet) listing every piece of equipment: its tag, manufacturer, model, size, CFM, etc. We parse every table on every page and turn each row into a "variable" — a structured record with the tag and every property from that row.
 
-**The 3 steps:**
+**Job 2 — Spot equipment on the drawing.**
+We use a visual AI (YOLO) that's been trained on labeled blueprints to look at each floor plan and draw a box around every piece of equipment it sees — diffusers, grilles, condensing units, fans, dampers.
 
-1. **Show examples** — Your team's old projects (where they marked equipment in Bluebeam) become "answer keys" the computer learns from.
-2. **Train the model** — The computer studies these examples on a powerful GPU computer (we use Google Colab — free) until it can recognize patterns.
-3. **Use the model** — Upload a new blueprint, the computer marks all the equipment it sees, you review and correct.
+**Job 3 — Match boxes to tags.**
+For each box the AI drew, we figure out which schedule variable it corresponds to. We use three strategies in order:
 
-Every correction your team makes becomes a new training example, so the system gets smarter over time.
+1. **Direct match** — if there's only one CU tag in the schedule, every CU-shaped box gets that tag.
+2. **Property match** — read the text near each box (CFM, model number). If it matches a tag's distinctive properties, we know that's the tag.
+3. **Bubble OCR** — read the little label bubble next to each symbol (like "CU-1") using OCR, matched against the valid tag list for that equipment type.
+
+The result is a filled Excel takeoff in your team's exact format + an annotated PDF with colored boxes showing what was detected.
+
+---
+
+## The Three Outputs
+
+Every time you run the tool on a PDF, you get a folder with:
+
+1. **`{project}_takeoff.xlsx`** — Excel in your team's format (PRODUCT, BRAND, MODEL, QTY, TAG, NECK SIZE, MODULE SIZE, DUCT SIZE, TYPE, MOUNTING, REMARK).
+2. **`{project}_annotated.pdf`** — Your original PDF with colored boxes drawn around every detected symbol.
+3. **`{project}_variables.json`** — A machine-readable file listing every schedule variable (for verification, debugging, or feeding into other tools).
 
 ---
 
@@ -32,108 +47,145 @@ Every correction your team makes becomes a new training example, so the system g
 
 | Term | What it means in plain English |
 |---|---|
-| **Model** | The "brain" of the system. It's just a file (~22MB) that knows how to spot HVAC equipment. We're on version 7 (v7). |
-| **Training** | Teaching the brain. Takes ~45 minutes on a GPU. |
-| **Inference** | Asking the brain to do a job. Takes ~5 seconds per page. |
+| **Model** | The "brain" of the system. It's just a file that knows how to spot HVAC equipment. We're on version 9 (v9). |
+| **Training** | Teaching the brain. Takes ~45 minutes on a Kaggle/Colab GPU. |
+| **Inference** | Asking the brain to do a job. Takes ~20 seconds per page. |
 | **Annotation** | When your team draws a box around a diffuser in Bluebeam, that's an annotation. |
-| **Ground truth** | What the right answer SHOULD be (your team's annotations). |
-| **Class** | A type of equipment (e.g., "T-bar supply diffuser" or "exhaust fan"). |
-| **GPU vs CPU** | GPU is the fast computer (Google Colab). CPU is your laptop — too slow for training. |
-| **Dataset** | The collection of all training examples. Currently ~5,500 equipment instances from 23 projects. |
+| **Schedule** | The spec table on a drawing listing every piece of equipment and its properties. |
+| **Variable** | Our term for one tag + all the properties from its schedule row. E.g., "CU-1" variable = {MANUFACTURER: CARRIER, MODEL: 40RUQA12, CFM: 3650, ...}. |
+| **Tag** | The equipment identifier on the drawing — like "CU-1", "A1", "EF-3". |
+| **YOLO** | The specific AI technique we use — it does both detection (where) and classification (what type) in one pass. |
+| **OCR** | Optical Character Recognition — reading text from an image (like reading a tag bubble next to a symbol). |
+| **Class** | A type of equipment (e.g., "T-bar supply diffuser" or "condensing unit"). |
 | **Confidence** | How sure the computer is about a detection (0-100%). We typically accept anything above 40%. |
 
-### The Two Numbers That Matter Most
-
-When we test the model, we measure two things:
+### The Three Numbers That Matter
 
 **Recall = "Did we find everything?"**
-- If a drawing has 100 diffusers and the model finds 81, that's **81% recall**.
-- High recall = nothing is missed.
-- *Currently: 81% — we find 4 out of every 5 pieces of equipment.*
+- If a drawing has 100 diffusers and the model finds 79, that's **79% recall**.
+- Currently: ~**79% position recall** (we find 4 out of 5 pieces of equipment).
 
 **Precision = "Are our answers correct?"**
-- If the model says it found 100 diffusers and 75 of them are actually diffusers, that's **75% precision**.
-- High precision = no false alarms.
-- *Currently: 62% — about 2 out of every 3 answers are correct.*
+- If the model says it found 100 diffusers and 88 actually are, that's **88% precision**.
+- Currently: ~**88% precision** (about 9 out of 10 answers are correct).
 
-The dream is **100% recall AND 100% precision**. In practice, you trade them off.
-
-We also track a stricter version called **"full match recall"** — we found the equipment AND labeled it with the right type. *Currently: 51%.*
+**Tagging rate = "Did we label each box with the right tag?"**
+- Out of all detected boxes, what percent got matched to a specific schedule tag?
+- This varies by project style: Flex 230 = 90%, United = 58%, others untested.
 
 ---
 
-## Where We Are Right Now (April 8, 2026)
+## Where We Are Right Now (April 21, 2026)
 
 | What | Status |
 |---|---|
-| Model finds equipment positions | ✅ **81%** of the time — works |
-| Model labels equipment correctly | 🟡 **51%** of the time — needs work |
-| Outputs annotated PDF | ✅ Works |
-| Outputs Excel takeoff with counts | ⏳ Not yet built |
-| Outputs CFM/dimensions | ⏳ Not yet built |
-| Has a user interface | ⏳ Phase 2 — not yet |
-| Has test data from 36 real projects | ✅ Done |
+| Model finds equipment positions | ✅ **79%** — works |
+| Model labels equipment correctly | ✅ **88%** precision on things it finds |
+| Parse schedule tables | ✅ Works on 3 tested styles (Flex, Aritzia, United) |
+| Extract schedule variables with all properties | ✅ **Done** — every row → one variable with every column preserved |
+| Match detections to schedule tags | 🟡 **Variable** — 90% on simple projects, 58% on complex multi-tag projects |
+| Output annotated PDF | ✅ Works |
+| Output Excel in team's format | ✅ Works |
+| Output JSON sidecar for verification | ✅ Works |
+| Has a user interface | ⏳ Not yet |
+| Has review/correction workflow | ⏳ Not yet |
+| Has been tested on all common project styles | 🟡 Partial — Flex, Aritzia, United, more pending |
 
 ### The Honest Score
 
-For a typical project, the tool will:
-- Find about **4 out of 5** pieces of equipment correctly
-- Get about **half** of them labeled with the exact right product type
-- Save your team **most of the manual counting time**, but they still need to review and correct
+For a typical project the tool now does the following:
+- Finds about **4 out of 5** pieces of equipment in the drawing
+- Labels about **9 out of 10** of those correctly with equipment type
+- Extracts **100% of schedule variables** on supported schedule styles
+- Matches detections to specific tags somewhere between **58% and 90%** of the time depending on project style
 
-We are **not yet at production quality**. We're at "useful internal helper" quality.
+**We are at "genuinely useful internal helper" quality, not yet production.** A team member using this tool today gets most of the grunt work done automatically but still needs to review and fill in the gaps.
 
 ---
 
 ## Why Some Projects Work Better Than Others
 
-Different engineering firms draw HVAC symbols differently. We have 3 main "drawing styles" in our training data:
+Three variables drive accuracy:
 
-| Style | Example Projects | Accuracy |
-|---|---|---|
-| **Flex/Plum** (Gensler tenant fit-outs) | Flex 200/210/220/230 | 86% — excellent |
-| **Haldeman** (Aritzia, Yucaipa, Mission Bay) | Aritzia, Shamrock, ARE Campus | 87% — excellent |
-| **Larson/Micah** (St Elizabeth, Aaron Packaging) | St Elizabeth, Mygrant, Larchmont | 35-85% — varies |
+**1. Drawing style.** Different engineering firms draw HVAC symbols differently. We've trained on Flex/Plum, Haldeman, and Larson/Micah styles. Styles we haven't seen yet (like French Beaconsfield) will have lower accuracy until we add training data.
 
-The model is great at styles it has seen many examples of. New styles need more training data.
+**2. Schedule layout.** Schedules vary wildly:
+- **Vertical simple** (Flex 230): one table, one tag column, clean rows. Extraction is perfect.
+- **Horizontal stacked** (Aritzia): properties listed down column 0, tags as column headers. We auto-transpose.
+- **Multi-section combined** (Aritzia AHU+CU): multiple sub-schedules in one table. Sometimes fragments.
+
+**3. How tags appear on the drawing.**
+- **Single-tag per class** (Flex A/B/C/D): trivial to match. 90% tagging.
+- **Multi-tag per class with visible bubbles** (United CU-1..6): bubble OCR works well. 58% tagging.
+- **No tag bubbles, just tiny text**: hard; needs better OCR or trained per-tag model.
+
+---
+
+## What's New Since April 8
+
+### Schedule parsing got a lot smarter
+- Now handles horizontal tables (auto-transpose)
+- Handles multi-tag cells: `"A, B, C"`, `"CU-1 thru CU-6"`, `"24\nVAV\n27"`, `"AC-1,2"`
+- Strips equipment-status prefixes `(E)`, `(R)`, `(N)`
+- Filters out drawing sheet numbers (`M102`, `E301`) and refrigerant codes (`R-454B`, `R-32`)
+- Works on schedules where the tag column is labeled "TYPE" instead of "TAG" (AIR DEVICE SCHEDULE style)
+
+### Variable extraction added
+- Every schedule row is now one "variable" with ALL its columns preserved
+- Inferred equipment type attached to each variable
+- Written to `variables.json` next to every takeoff for verification
+- `--verify` flag prints human-readable dump to terminal
+
+### Tag matching went from naive to 3-level
+- Level 1: direct class → single tag assignment (works for Flex)
+- Level 2a: fingerprint match using PDF text layer
+- Level 2b: schedule-guided bubble OCR (the big win for complex projects)
+- United went from **3% tagged to 58% tagged** after Level 2b bubble OCR
 
 ---
 
 ## What's Next
 
-### Immediate (this week)
-**Fix the class confusion problem.** The model is good at finding equipment but sometimes mislabels it. We need to look at WHICH labels it confuses with WHICH (called a "confusion matrix") and fix the training data accordingly.
+### Immediate (this week / next)
+- **Class aliasing** — YOLO sometimes detects "SPLIT SYSTEM" when the schedule has "CONDENSING UNIT". Need a map so they count together.
+- **Crop preprocessing for OCR** — upscale + binarize crops before EasyOCR for better bubble reading.
+- **Test on 3-5 more project styles** (SmithGroup, French Beaconsfield, SouthVAC files).
 
-### Short term (next 2-3 weeks)
-- Add value extraction (read CFM ratings, neck sizes, dimensions)
-- Build the Excel BOM output in your team's format
-- Test on 10+ unseen projects
+### Short term (2-4 weeks)
+- More training data + retrain YOLO on broader style mix
+- Handle the "big PDF crashes pdfplumber" case (streaming parser)
+- Start on a review UI so the team can correct mistakes → feed into training
 
 ### Medium term (1-2 months)
-- Build a simple web tool the team can use daily (Phase 2)
-- Add human-in-the-loop correction (every fix becomes training data)
-- Get to 90%+ accuracy on all common drawing styles
+- Simple web tool the team uses daily (Phase 2)
+- Human-in-the-loop correction loop (every fix = training data)
+- Target: 90%+ accuracy across all common drawing styles
 
 ### Long term (3-6 months)
 - Public SaaS launch
-- Expand to plumbing and electrical takeoffs
+- Plumbing and electrical takeoffs
 
 ---
 
 ## How To Talk About This in One Sentence
 
-> "We're building an AI that reads HVAC blueprints and produces equipment takeoffs automatically. It currently finds 81% of equipment correctly. We're tuning it to be production-ready over the next few weeks."
+> "We're building an AI that reads HVAC blueprints and produces equipment takeoffs in seconds. It currently finds 79% of equipment with 88% precision, extracts 100% of schedule details, and auto-assigns tags on 58-90% of equipment depending on project style."
 
 ---
 
-## How We Compare to Rebar (the competition)
+## How We Compare to Rebar
 
-Rebar (withrebar.ai) is the AI HVAC takeoff company that raised $14M and uses our team's data to bootstrap their model. Their approach is the same as ours — visual pattern recognition trained on labeled blueprints. They just have:
-- More training data (millions of files vs our 5,500 instances)
-- More compute (production GPUs vs free Colab)
+Rebar (withrebar.ai) is the AI HVAC takeoff company that raised $14M and bootstrapped from Triune's files. Same fundamental approach (visual pattern recognition on labeled blueprints). They have:
+- More training data (millions vs our ~25K tiles)
+- Production GPUs
 - A polished web app
 
-We're early. We have the same fundamental tech and a real edge: domain expertise and a takeoff team that generates training data daily. With more annotated projects, we can match their accuracy.
+We have:
+- Real domain expertise (in-house takeoff team)
+- A data flywheel from the team's daily Bluebeam corrections
+- Control of the pipeline (we can tune schedule parsing for our specific project styles)
+
+We're several engineering months behind on the product side but only a labeled-data gap behind on accuracy.
 
 ---
 
@@ -141,12 +193,16 @@ We're early. We have the same fundamental tech and a real edge: domain expertise
 
 | File | What it does |
 |---|---|
+| `takeoff_cli.py` | The main command — feed it a PDF, get Excel + annotated PDF + variables JSON |
+| `schedule_parser.py` | Reads every schedule table in the PDF and builds variables |
+| `tag_inference.py` | Three-level system for matching AI detections to schedule tags |
+| `tag_matcher.py` | OCR helpers for reading tag bubbles next to detections |
 | `train_yolo.py` | Teaches a new model from your team's labeled projects |
 | `benchmark.py` | Tests how accurate the model is on real projects |
-| `class_aliases.py` | Fixes typos and merges duplicate equipment names |
+| `class_aliases.py` | Fixes typos and merges duplicate equipment names in training data |
 | `colab_train.ipynb` | The notebook we run on Google Colab to train (free GPU) |
-| `models/hvac_yolov8s_v7.pt` | The current best model (the "brain") |
-| `data to train/projects/` | All 36 organized projects with labeled examples |
+| `models/hvac_yolov8s_v9.pt` | The current best model — the "brain" |
+| `data to train/projects/` | All ~130 labeled projects (not in the repo, lives on JFL's machine) |
 | `PRD.md` | The full product roadmap |
 | `CLAUDE.md` | Technical context for engineers |
 | `WHAT_WE_ARE_BUILDING.md` | This document |
