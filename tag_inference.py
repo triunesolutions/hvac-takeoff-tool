@@ -367,7 +367,75 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
     return detections, {'level': '2a', 'method': 'fingerprint', 'tagged': tagged}
 
 
-# ─── LEVEL 2B: CFM/size text matching (legacy fallback) ─────────────────────
+# ─── LEVEL 2B: Schedule-guided bubble OCR ───────────────────────────────────
+# Most HVAC drawings print a small tag label (e.g., "CU-1", "FCU-7") in a
+# bubble next to each equipment symbol. OCR the region around each detection
+# and match against the valid tag list for that YOLO class.
+
+def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
+                         max_distance=140):
+    """
+    For each untagged detection in a multi-tag class, OCR a small crop around
+    it and match tokens against the valid tags for that class. Greedy 1:1
+    assignment by proximity (closest matched word to detection center wins).
+
+    Requires `img` — a BGR numpy array of the rendered page (the same image
+    used for YOLO inference, at the same DPI).
+    """
+    if img is None or not class_to_tags:
+        return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': 0}
+
+    # Import lazily — pulls in EasyOCR which is heavy
+    try:
+        from tag_matcher import ocr_near_detection, match_valid_tags
+    except Exception as e:
+        return detections, {'level': '2b', 'method': 'bubble_ocr',
+                              'tagged': 0, 'error': str(e)}
+
+    by_class = defaultdict(list)
+    for i, det in enumerate(detections):
+        if det.get('tag'):
+            continue
+        by_class[det.get('cls', '')].append(i)
+
+    tagged = 0
+    for cls, det_indices in by_class.items():
+        valid_tags = list(class_to_tags.get(cls, {}).keys())
+        if len(valid_tags) < 2:
+            continue
+
+        # For each detection, pick the closest matching valid tag.
+        # No 1:1 constraint — the same tag can be assigned to many detections
+        # (air devices like A1 commonly repeat across a floor plan).
+        for di in det_indices:
+            det = detections[di]
+            try:
+                words = ocr_near_detection(img, det, crop_size=crop_size,
+                                             conf_threshold=0.3)
+            except Exception:
+                continue
+            matches = match_valid_tags(words, valid_tags)
+            if not matches:
+                continue
+            dcx = det.get('cx', 0)
+            dcy = det.get('cy', 0)
+            best = None
+            best_dist = float('inf')
+            for tag, word in matches:
+                dist = ((word['cx'] - dcx) ** 2 + (word['cy'] - dcy) ** 2) ** 0.5
+                if dist < best_dist and dist <= max_distance:
+                    best_dist = dist
+                    best = tag
+            if best is not None:
+                detections[di]['tag'] = best
+                detections[di]['tag_method'] = 'bubble_ocr'
+                detections[di]['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
+                tagged += 1
+
+    return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': tagged}
+
+
+# ─── LEVEL 2C: CFM/size text matching (legacy fallback) ─────────────────────
 
 def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60):
     """
@@ -490,7 +558,7 @@ def level3_class_fallback(detections):
 # ─── MAIN ENTRY POINT ───────────────────────────────────────────────────────
 
 def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
-               variables=None):
+               variables=None, page_images=None):
     """
     Run all levels of tag inference on all detections.
 
@@ -518,7 +586,7 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
         detections, stats1 = level1_direct_mapping(detections, marks, class_to_tags)
         all_stats.append(stats1)
 
-        # Level 2a: Fingerprint matching using variables (preferred)
+        # Level 2a: Fingerprint matching using variables (from PDF text layer)
         untagged_count = sum(1 for d in detections if not d.get('tag'))
         if untagged_count > 0 and variables:
             detections, stats2a = level2_fingerprint_matching(
@@ -526,9 +594,20 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
             )
             all_stats.append(stats2a)
 
-        # Level 2b: Legacy CFM/size matching — only runs when we have no
-        # variables. It lacks class filtering and can cross-match tags across
-        # classes, so we skip it when the richer Level 2a has already run.
+        # Level 2b: Bubble OCR — crop around each detection, OCR, match the
+        # result to the valid tag list for that class. This is the highest-
+        # yield level for schedules where the tag bubble ("CU-1") is printed
+        # next to each symbol on the drawing.
+        untagged_count = sum(1 for d in detections if not d.get('tag'))
+        if (untagged_count > 0 and variables and page_images
+                and page_idx in page_images):
+            detections, stats2b = level2b_bubble_ocr(
+                detections, class_to_tags, page_images[page_idx]
+            )
+            all_stats.append(stats2b)
+
+        # Level 2c: Legacy CFM/size matching — only when we have no
+        # variables. Lacks class filtering; cross-class matching risk.
         untagged_count = sum(1 for d in detections if not d.get('tag'))
         if untagged_count > 0 and mark_details and not variables:
             detections, stats2 = level2_size_cfm_matching(

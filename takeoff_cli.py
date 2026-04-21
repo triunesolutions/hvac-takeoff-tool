@@ -452,8 +452,10 @@ def main():
 
     print(f"Processing {len(pages_to_process)} page(s) of {total_pages} total\n")
 
-    # Process each page
+    # Process each page — keep rendered images so tag inference can OCR
+    # bubbles next to each detection (Level 2b)
     detections_per_page = {}
+    page_images = {}
     t_start = time.time()
     for page_idx in pages_to_process:
         t0 = time.time()
@@ -469,6 +471,7 @@ def main():
         print(f"{len(dets)} found ({elapsed:.0f}s)")
         if dets:
             detections_per_page[page_idx] = dets
+            page_images[page_idx] = img
 
     total_elapsed = time.time() - t_start
     print(f"\nDetection complete in {total_elapsed:.0f}s")
@@ -478,7 +481,7 @@ def main():
         print("\nInferring tags...")
         detections_per_page, tag_stats = infer_tags(
             detections_per_page, schedules, marks, mark_details, str(pdf_path),
-            variables=variables
+            variables=variables, page_images=page_images
         )
         print(f"  Tagged: {tag_stats['tagged']}/{tag_stats['total']} ({tag_stats['tagged_pct']:.0f}%)")
         for ls in tag_stats.get('levels', []):
