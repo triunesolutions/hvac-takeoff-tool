@@ -25,19 +25,64 @@ import fitz
 
 # Common tag prefix → YOLO class mapping
 TAG_PREFIX_CLASS = {
+    # Fans
     'EF': 'EXHAUST FAN', 'SF': 'FAN', 'CF': 'FAN', 'RF': 'FAN',
-    'CU': 'CONDENSING UNIT', 'AC': 'CONDENSING UNIT',
-    'AHU': 'AIR HANDLING UNIT', 'RTU': 'PACKAGED ROOFTOP UNIT',
-    'FCU': 'FAN COIL UNIT', 'HP': 'HEAT PUMP',
+    'CEF': 'EXHAUST FAN',   # ceiling exhaust fan
+    'IEF': 'EXHAUST FAN',   # inline exhaust fan
+    # Major equipment
+    'CU': 'CONDENSING UNIT', 'AC': 'CONDENSING UNIT', 'OACU': 'CONDENSING UNIT',
+    'AHU': 'AIR HANDLING UNIT', 'DOAS': 'AIR HANDLING UNIT',
+    'RTU': 'PACKAGED ROOFTOP UNIT',
+    'FCU': 'FAN COIL UNIT', 'FC': 'FAN COIL UNIT',
+    'HP': 'HEAT PUMP',
+    # Heaters
     'EUH': 'HEATER', 'UH': 'HEATER', 'EH': 'HEATER', 'BH': 'HEATER',
+    'CUH': 'HEATER', 'DH': 'HEATER',
+    # Terminals / specialty
     'VAV': 'VAV', 'VRF': 'VRF', 'ERV': 'CONDENSING UNIT',
+    # Dampers
     'MD': 'MOTORIZED DAMPER', 'MVD': 'MANUAL VOLUME DAMPER', 'FD': 'FIRE DAMPER',
-    'FSD': 'FIRE SMOKE DAMPER', 'BD': 'BACKDRAFT DAMPER',
+    'FSD': 'FIRE SMOKE DAMPER', 'BD': 'BACKDRAFT DAMPER', 'SD': 'SMOKE DAMPER',
+    # Louvers
     'L': 'LOUVER', 'LVR': 'LOUVER',
-    'GR': 'AD-GRD', 'RG': 'AD-GRD', 'SD': 'AD-GRD', 'CD': 'AD-GRD',
+    'EL': 'LOUVER',        # exhaust louver
+    'SL': 'LOUVER',        # supply louver
+    'IL': 'LOUVER',        # intake louver
+    # Grilles / registers / diffusers (AD-GRD family)
+    'GR': 'AD-GRD', 'RG': 'AD-GRD', 'CD': 'AD-GRD',
     'SA': 'AD-GRD', 'RA': 'AD-GRD', 'EA': 'AD-GRD', 'SB': 'AD-GRD',
+    'EG': 'AD-GRD',        # exhaust grille
+    'SG': 'AD-GRD',        # supply grille
+    'RR': 'AD-GRD',        # return register
+    'SR': 'AD-GRD',        # supply register
+    'ER': 'AD-GRD',        # exhaust register
+    # Linear diffusers
     'LD': 'AD-LINEAR PLENUM',
 }
+
+# Map YOLO detection class names to the schedule-inferred class family.
+# YOLO sometimes outputs a specific variant (SPLIT SYSTEM) while the schedule
+# classifies equipment more broadly (CONDENSING UNIT). This lets Level 1 and
+# Level 2b still match when the names differ.
+YOLO_CLASS_ALIASES = {
+    'SPLIT SYSTEM': 'CONDENSING UNIT',
+    'PACKAGED ROOFTOP UNIT': 'PACKAGED ROOFTOP UNIT',
+    'MANUAL VOLUME DAMPER': 'MOTORIZED DAMPER',  # YOLO often can't tell them apart
+    'VENT CAP': 'EXHAUST FAN',                     # vent caps sit atop exhaust fans
+}
+
+
+def _resolve_class(yolo_class, class_to_tags):
+    """
+    Look up a YOLO class in class_to_tags, trying direct match first then
+    aliases. Returns the key under which the class's tags live.
+    """
+    if yolo_class in class_to_tags:
+        return yolo_class
+    alias = YOLO_CLASS_ALIASES.get(yolo_class)
+    if alias and alias in class_to_tags:
+        return alias
+    return None
 
 
 def _infer_class_from_tag(tag):
@@ -199,10 +244,8 @@ def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
     """
     If a YOLO class maps to exactly 1 schedule tag → auto-assign.
     The mapping comes from THIS project's schedule, not hardcoded patterns.
-
-    Example:
-      Flex schedule says AD-SURF RETURN has only tag "D" → all AD-SURF RETURN = D
-      But St Elizabeth has AD-GRD with 17 tags → can't auto-assign, skip to Level 2.
+    Also applies YOLO_CLASS_ALIASES so detections like SPLIT SYSTEM can match
+    schedule tags inferred as CONDENSING UNIT.
 
     Returns (detections_with_tags, stats).
     """
@@ -217,8 +260,9 @@ def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
     tagged = 0
     for det in detections:
         cls = det.get('cls', '')
-        if cls in auto_map:
-            det['tag'] = auto_map[cls]
+        resolved = cls if cls in auto_map else YOLO_CLASS_ALIASES.get(cls)
+        if resolved and resolved in auto_map:
+            det['tag'] = auto_map[resolved]
             det['tag_method'] = 'direct'
             det['tag_confidence'] = 1.0
             tagged += 1
@@ -321,7 +365,10 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
 
     tagged = 0
     for cls, det_indices in by_class.items():
-        candidates = list((class_to_tags or {}).get(cls, {}).keys())
+        resolved_cls = _resolve_class(cls, class_to_tags or {})
+        if not resolved_cls:
+            continue
+        candidates = list(class_to_tags[resolved_cls].keys())
         if len(candidates) < 2:
             continue  # Single-tag classes handled by Level 1
 
@@ -400,7 +447,10 @@ def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
 
     tagged = 0
     for cls, det_indices in by_class.items():
-        valid_tags = list(class_to_tags.get(cls, {}).keys())
+        resolved_cls = _resolve_class(cls, class_to_tags)
+        if not resolved_cls:
+            continue
+        valid_tags = list(class_to_tags[resolved_cls].keys())
         if len(valid_tags) < 2:
             continue
 
