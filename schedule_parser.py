@@ -41,6 +41,18 @@ SCHEDULE_KEYWORDS = [
     "MECHANICAL SCHEDULE", "HVAC SCHEDULE",
 ]
 
+# Schedule types that are NOT HVAC equipment — skip these tables entirely.
+# Projects include plumbing, lighting, electrical schedules in the same
+# drawing set. We only take HVAC off.
+NON_HVAC_SCHEDULE_KEYWORDS = [
+    "PLUMBING", "LIGHTING", "ELECTRICAL", "FIRE PROTECTION",
+    "DATA", "TELECOM", "SECURITY", "FIRE ALARM",
+    "WATER HEATER", "PLUMBING FIXTURE", "LIGHTING FIXTURE",
+    "FIXTURE SCHEDULE", "PANEL SCHEDULE", "CIRCUIT",
+    "SPRINKLER", "DOOR SCHEDULE", "WINDOW SCHEDULE",
+    "FINISH SCHEDULE", "ROOM SCHEDULE",
+]
+
 # Property keywords that identify a schedule table even without "SCHEDULE" keyword
 PROPERTY_KEYWORDS = {"MANUFACTURER", "MODEL", "AIRFLOW", "CFM", "CAPACITY",
                       "INLET", "OUTLET", "WEIGHT", "VOLTAGE", "WATTS",
@@ -156,6 +168,15 @@ def normalize_tag(raw):
     if re.match(r'^[A-Za-z]\d{3}$', s):
         return None
 
+    # Model numbers are typically long, no-hyphen, alphanumeric strings
+    # mixing 3+ letters with digits (e.g., RKF12AXVJU, FTKF12AXVJU, DAX0904A).
+    # Real equipment tags are almost always hyphenated or short.
+    if '-' not in s and len(s) > 8:
+        # Count letter/digit alternations as a heuristic for model-number shape
+        letters = sum(1 for c in s if c.isalpha())
+        if letters >= 4:
+            return None
+
     # Reject cell labels that leaked in from adjacent columns
     prefix_m = re.match(r'^([A-Z]+)', s.upper())
     if prefix_m and prefix_m.group(1) in BANNED_TAG_PREFIXES:
@@ -257,9 +278,27 @@ def expand_tag_cell(raw):
       - compound:     'A, B, C'         -> ['A','B','C']
       - range:        'CU-1 thru CU-6'  -> ['CU-1','CU-2',...,'CU-6']
       - multi-number: '24\\nVAV\\n27'    -> ['VAV-24','VAV-27']
+      - multi-line:   'CU-1\\nCU-2'      -> ['CU-1','CU-2'] (each line a tag)
     """
     if not raw:
         return []
+
+    # Multi-line cell where each line is a complete tag on its own.
+    # Seen on equipment-connection schedules where one row covers multiple
+    # units: MARK cell is "CU-1\nCU-2" or "EF-2\nOACU-1".
+    s = str(raw).strip()
+    if '\n' in s:
+        lines = [ln.strip() for ln in s.split('\n') if ln.strip()]
+        # Each line must look like a complete tag: letters + (digit or hyphen)
+        if len(lines) > 1 and all(
+            re.match(r'^[A-Za-z]{1,5}-?\d', ln) or
+            re.match(r'^[A-Za-z]{2,5}-[A-Za-z0-9]+$', ln)
+            for ln in lines
+        ):
+            tags = [t for t in (normalize_tag(ln) for ln in lines) if t]
+            if tags:
+                return tags
+
     multi = split_multi_number_cell(raw)
     if multi:
         return [t for t in (normalize_tag(m) for m in multi) if t]
@@ -389,22 +428,27 @@ def extract_schedules_and_marks(pdf_path):
                 if header_row_idx is None and not page_has_schedule:
                     continue
 
-                # Schedule name (from rows above header).
-                # Skip prose-like rows (contractor notes, descriptions) — the
-                # schedule title is usually a short phrase with "SCHEDULE" in it.
+                # Schedule name (from rows above header). Prefer rows that
+                # contain "SCHEDULE" keyword — that's almost always the actual
+                # title. Fall back to the first short non-prose row.
                 schedule_name = ""
+                fallback_name = ""
                 if header_row_idx is not None:
                     for up in range(header_row_idx - 1, -1, -1):
                         cells = [str(c).strip() for c in table[up] if c not in [None, ""]]
                         if not cells:
                             continue
                         candidate = " ".join(cells[:3])
-                        # Skip long prose (likely a note, not a title)
-                        if len(candidate) > 80 or candidate.count(' ') > 10:
-                            continue
-                        # Prefer rows that look like titles
-                        schedule_name = candidate
-                        break
+                        # Prefer a title row containing SCHEDULE
+                        if 'SCHEDULE' in candidate.upper() and len(candidate) < 100:
+                            schedule_name = candidate
+                            break
+                        # Otherwise remember first short non-prose row as fallback
+                        if not fallback_name:
+                            if len(candidate) <= 80 and candidate.count(' ') <= 10:
+                                fallback_name = candidate
+                    if not schedule_name:
+                        schedule_name = fallback_name
 
                 # Build header + data rows
                 header = None
@@ -430,6 +474,23 @@ def extract_schedules_and_marks(pdf_path):
                 looks_like_schedule = page_has_schedule or ("SCHEDULE" in " ".join(header_upper))
                 if not looks_like_schedule:
                     continue
+
+                # Skip non-HVAC schedules (plumbing, lighting, electrical, etc.)
+                # Check ONLY the schedule name — not column headers, because
+                # legit HVAC schedules like RTU often have "ELECTRICAL" as a
+                # column header under the electrical specs sub-section.
+                name_text = (schedule_name or "").upper()
+                if any(kw in name_text for kw in NON_HVAC_SCHEDULE_KEYWORDS):
+                    # But don't reject if the name also contains an HVAC keyword
+                    # (some combined "MECHANICAL AND PLUMBING" schedules exist)
+                    hvac_keywords = ('HVAC', 'AIR HANDL', 'CONDENSING', 'FAN COIL',
+                                       'DIFFUSER', 'GRILLE', 'DAMPER', 'VAV',
+                                       'EXHAUST FAN', 'TERMINAL', 'ROOFTOP',
+                                       'AIR CURTAIN', 'LOUVER',
+                                       'UNIT HEATER', 'ELECTRIC HEATER',
+                                       'CABINET HEATER', 'DUCT HEATER')
+                    if not any(kw in name_text for kw in hvac_keywords):
+                        continue
 
                 # Identify columns
                 mark_col_indices = []
