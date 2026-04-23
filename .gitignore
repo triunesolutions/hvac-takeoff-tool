@@ -42,3 +42,9 @@ yolo_dataset.zip
 
 # Colab benchmark package (large, regeneratable)
 colab_benchmark_pkg/
+
+# Tag-detection training dataset — ~27K PNG crops, regeneratable from ground_truth.jsonl
+tag_dataset/
+tag_dataset_test/
+tag_dataset_build.log
+debug_*.png

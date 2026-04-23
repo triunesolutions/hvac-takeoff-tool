@@ -17,6 +17,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 sys.stdout.reconfigure(line_buffering=True)
 
 import os
+import re
 import json
 import argparse
 import time
@@ -53,6 +54,174 @@ COLORS = [
     (128, 0, 128),   # purple
     (0, 128, 128),   # teal
 ]
+
+
+# ─── PROJECT INFO (TITLE BLOCK) ───────────────────────────────────────────────
+
+# Inline label-value patterns: value is on same line after LABEL: value
+INLINE_PATTERNS = {
+    'scale':       [r'\bSCALE\s*[:=]\s*([0-9/"\'\-=\s\.]{1,30}(?:\'|"|FT)[0-9\'\-"=\s\.]{0,20})',
+                    r'\bSCALE\s*[:=]\s*(AS\s+NOTED|NTS|N\.T\.S\.|NONE)'],
+    'date':        [r'\bDATE\s*[:=]\s*([0-9]{1,2}[\-/\.][0-9]{1,2}[\-/\.][0-9]{2,4})',
+                    r'\b(?:ISSUE[D]?|PLOT)\s*DATE\s*[:=]\s*([0-9]{1,2}[\-/\.][0-9]{1,2}[\-/\.][0-9]{2,4})'],
+    'sheet':       [r'\bSHEET\s*(?:NO\.?|NUMBER)\s*[:=]\s*([A-Z]{1,3}[\-\.]?[0-9]{1,4}(?:\.[0-9]+)?)',
+                    r'\bDRAWING\s*(?:NO\.?|NUMBER)\s*[:=]\s*([A-Z]{1,3}[\-\.]?[0-9]{1,4})'],
+    'project':     [r'\bPROJECT\s*(?:NAME)?\s*[:=]\s*([^\n\r]{3,80})',
+                    r'\bJOB\s*(?:NAME|NO\.?)\s*[:=]\s*([^\n\r]{3,80})'],
+    'engineer':    [r'\bENGINEER\s*(?:OF\s*RECORD)?\s*[:=]\s*([^\n\r]{3,60})',
+                    r'\bDESIGNED\s*BY\s*[:=]\s*([^\n\r]{2,40})',
+                    r'\bDRAWN\s*BY\s*[:=]\s*([^\n\r]{2,40})'],
+    'firm':        [r'\b(?:MECHANICAL\s+ENGINEER|MEP\s+ENGINEER|CONSULTANT)\s*[:=]\s*([^\n\r]{3,80})'],
+    'revision':    [r'\bREV(?:ISION)?\s*(?:NO\.?)?\s*[:=]\s*([0-9A-Z]{1,4})\b'],
+}
+
+# Bad-phrase prefixes that should never be treated as values
+_BAD_VALUE_STARTS = re.compile(
+    r'^(?:ISSUE(?:D)?\b|NOT\b|FOR\b|TO\s+BE\b|APPROVED\b|REVIEWED\b|SEE\b|DESCRIPTION\b|NO\.\b|NOTES?\b|BY\b)',
+    re.IGNORECASE,
+)
+
+# Field-specific value validators (return True if val passes for that key)
+_FIELD_VALIDATORS = {
+    'scale':    lambda v: bool(re.search(r'[0-9/]["\']|NTS|N\.T\.S|AS\s+NOTED|NONE', v, re.I)),
+    'date':     lambda v: bool(re.search(r'[0-9]{1,2}[\-/\.][0-9]{1,2}[\-/\.][0-9]{2,4}|[A-Z][a-z]+\s+\d{1,2}[,\s]+\d{4}', v)),
+    'sheet':    lambda v: bool(re.match(r'^[A-Z]{1,3}[\-\.]?[0-9]{1,4}(?:\.[0-9]+)?$', v.strip())),
+    'revision': lambda v: bool(re.match(r'^[0-9]{1,3}$|^[A-Z]$', v.strip())),
+    'project':  lambda v: (len(v) >= 5 and not re.match(r'^(?:Project|Job|Sheet|Drawing|Date|Scale|Revision)\s*(?:Name|Number|Title|No\.?)?$', v, re.I)),
+    'engineer': lambda v: (2 <= len(v) <= 40 and not re.search(r'\d{3,}', v)),
+    'firm':     lambda v: len(v) >= 4,
+}
+
+
+def _valid_field(key, val):
+    v = _FIELD_VALIDATORS.get(key)
+    return v(val) if v else True
+
+# Labels that commonly sit in a column with the value on the NEXT visible line
+# (typical CAD title blocks: "Project Name" line, then the actual name below)
+STACKED_LABELS = {
+    'project':  [r'^PROJECT\s*(?:NAME|TITLE)?\s*:?$', r'^JOB\s*(?:NAME|TITLE)?\s*:?$'],
+    'date':     [r'^DATE\s*:?$', r'^ISSUE(?:D)?\s*DATE\s*:?$'],
+    'scale':    [r'^SCALE\s*:?$'],
+    'sheet':    [r'^SHEET\s*(?:NO\.?|NUMBER)?\s*:?$', r'^DRAWING\s*(?:NO\.?|NUMBER)?\s*:?$'],
+    'engineer': [r'^(?:DRAWN|DESIGNED|CHECKED)\s*BY\s*:?$'],
+}
+
+
+def _clean(val):
+    val = val.strip().strip(':-=').strip()
+    val = re.sub(r'\s+', ' ', val)
+    return val
+
+
+def _is_bad_value(val):
+    if not val or len(val) < 2:
+        return True
+    if _BAD_VALUE_STARTS.match(val):
+        return True
+    return False
+
+
+def extract_project_info(pdf_path, max_pages=3):
+    """Best-effort extraction of title-block info from a PDF."""
+    info = {}
+    try:
+        doc = fitz.open(str(pdf_path))
+        chunks = []
+        for i in range(min(max_pages, len(doc))):
+            try:
+                chunks.append(doc[i].get_text("text"))
+            except Exception:
+                pass
+        doc.close()
+    except Exception as e:
+        return {'_error': str(e)}
+
+    full_text = "\n".join(chunks)
+    if not full_text.strip():
+        return info
+
+    # Pass 1 — inline LABEL: VALUE patterns
+    for key, patterns in INLINE_PATTERNS.items():
+        for pat in patterns:
+            m = re.search(pat, full_text, re.IGNORECASE)
+            if m:
+                val = _clean(m.group(1))
+                if not _is_bad_value(val) and _valid_field(key, val):
+                    info[key] = val
+                    break
+
+    # Pass 2 — stacked labels: value is on the next non-empty line
+    lines = [ln.strip() for ln in full_text.split('\n')]
+    for i, line in enumerate(lines):
+        if not line:
+            continue
+        for key, patterns in STACKED_LABELS.items():
+            if key in info:
+                continue
+            for pat in patterns:
+                if re.match(pat, line, re.IGNORECASE):
+                    # Next non-empty line within 3 lines = candidate value
+                    for j in range(i + 1, min(i + 4, len(lines))):
+                        cand = lines[j]
+                        if not cand or len(cand) >= 80:
+                            continue
+                        if _is_bad_value(cand):
+                            continue
+                        # Skip if it's another label (ends with colon, or is a known label word)
+                        if re.match(r'^(?:Project|Job|Sheet|Drawing|Date|Scale|Revision|Description|Drawn|Designed|Checked|By|No\.?|Number|Name|Title|Tel|Phone|Fax|Email)\s*(?:Name|Number|Title|By|No\.?|:)?\s*:?$', cand, re.I):
+                            continue
+                        if re.match(r'^[A-Z][A-Z\s]{2,30}:?$', cand):
+                            continue
+                        clean_cand = _clean(cand)
+                        if not _valid_field(key, clean_cand):
+                            continue
+                        info[key] = clean_cand
+                        break
+                    break
+
+    # Pass 3 — firm name heuristic (ALL CAPS + engineering/consulting suffix)
+    if 'firm' not in info:
+        firm_re = re.compile(
+            r'(?m)^([A-Z][A-Z&\.\-\' ,]{2,60}\s+(?:ENGINEERING|ENGINEERS|CONSULTANTS?|ASSOCIATES|DESIGN(?:S)?|GROUP|ARCHITECTS?)(?:\s*,?\s*(?:INC|LLC|LLP|P\.?C\.?|PLLC)\.?)?)\s*$'
+        )
+        for m in firm_re.finditer(full_text):
+            cand = _clean(m.group(1))
+            if not _is_bad_value(cand):
+                info['firm'] = cand
+                break
+
+    # Pass 4 — address (street line). Label-aware to avoid grabbing random "9530 Towne..." twice.
+    if 'address' not in info:
+        addr_re = re.compile(
+            r'\b([0-9]{2,5}\s+[A-Z][A-Za-z0-9\.\'\-]+(?:\s+[A-Z][A-Za-z0-9\.\'\-]+){1,5}\s+(?:ST|STREET|AVE|AVENUE|RD|ROAD|BLVD|DR|DRIVE|WAY|LN|LANE|CT|COURT|PL|PLACE|CIR|CIRCLE|CTR|CENTER|CENTRE)\.?)\b'
+        )
+        m = addr_re.search(full_text)
+        if m:
+            info['address'] = _clean(m.group(1))
+
+    return info
+
+
+def print_project_info(info):
+    """Pretty-print project info block."""
+    if not info or (len(info) == 1 and '_error' in info):
+        print("Project info: (none detected in title block)")
+        return
+    label_map = [
+        ('project',  'Project'),
+        ('firm',     'Firm'),
+        ('engineer', 'Engineer'),
+        ('address',  'Address'),
+        ('sheet',    'Sheet'),
+        ('scale',    'Scale'),
+        ('date',     'Date'),
+        ('revision', 'Revision'),
+    ]
+    print("Project info (best-effort from title block):")
+    for key, label in label_map:
+        if key in info:
+            print(f"  {label:<10} {info[key]}")
 
 
 # ─── PDF HANDLING ─────────────────────────────────────────────────────────────
@@ -397,6 +566,11 @@ def main():
     print(f"Output:   {out_dir}")
     print()
 
+    # Extract title-block info (best-effort)
+    project_info = extract_project_info(pdf_path)
+    print_project_info(project_info)
+    print()
+
     # Parse schedule first — always, even in --schedule-only mode
     print("Parsing schedule...")
     variables = []
@@ -418,6 +592,15 @@ def main():
         print(f"  Wrote {len(variables)} variables to {variables_path.name}")
     except Exception as e:
         print(f"  (JSON sidecar failed: {e})")
+
+    # Project info sidecar
+    if project_info and not ('_error' in project_info and len(project_info) == 1):
+        info_path = out_dir / f"{pdf_path.stem}_project_info.json"
+        try:
+            with open(info_path, 'w', encoding='utf-8') as f:
+                json.dump(project_info, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
 
     # Verification dump to stdout
     if args.verify or args.schedule_only:
