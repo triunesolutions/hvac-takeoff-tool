@@ -63,6 +63,110 @@ def ocr_page(img, conf_threshold=0.4):
     return words
 
 
+_bubble_model = None
+
+
+def get_bubble_model(model_path='models/hvac_tag_detector_v1.pt'):
+    """Lazy-init the YOLO tag-bubble detector. Returns None if not available."""
+    global _bubble_model
+    if _bubble_model is False:
+        return None  # cached miss
+    if _bubble_model is None:
+        try:
+            from ultralytics import YOLO
+            from pathlib import Path
+            if not Path(model_path).exists():
+                _bubble_model = False
+                return None
+            _bubble_model = YOLO(model_path)
+        except Exception:
+            _bubble_model = False
+            return None
+    return _bubble_model
+
+
+def detect_bubbles_on_page(img, conf=0.25, tile=320, overlap=80):
+    """Run the tag-bubble detector across a full page (tiled). Returns list of
+    {x1,y1,x2,y2,cx,cy,conf} for each detected tag_bubble (cls=1 only)."""
+    model = get_bubble_model()
+    if model is None:
+        return []
+    h, w = img.shape[:2]
+    step = tile - overlap
+    bubbles = []
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+            xe, ye = min(x + tile, w), min(y + tile, h)
+            xs, ys = max(0, xe - tile), max(0, ye - tile)
+            crop = img[ys:ye, xs:xe]
+            if crop.size == 0:
+                continue
+            results = model.predict(crop, conf=conf, imgsz=tile, verbose=False)
+            for r in results:
+                for box in r.boxes:
+                    cls = int(box.cls[0])
+                    if cls != 1:   # only tag_bubble class
+                        continue
+                    bx1, by1, bx2, by2 = box.xyxy[0].tolist()
+                    bubbles.append({
+                        'x1': bx1 + xs, 'y1': by1 + ys,
+                        'x2': bx2 + xs, 'y2': by2 + ys,
+                        'cx': (bx1 + bx2) / 2 + xs,
+                        'cy': (by1 + by2) / 2 + ys,
+                        'conf': float(box.conf[0]),
+                    })
+    # Simple NMS — drop bubble bboxes whose center is within 8 px of a higher-conf one
+    bubbles.sort(key=lambda b: -b['conf'])
+    keep = []
+    for b in bubbles:
+        if any(abs(b['cx'] - k['cx']) < 8 and abs(b['cy'] - k['cy']) < 8 for k in keep):
+            continue
+        keep.append(b)
+    return keep
+
+
+def ocr_bubble_crops(img, bubbles, pad=4, upscale=2.0, conf_threshold=0.2):
+    """OCR the tight crop for each bubble bbox (with small padding + upscale).
+    Returns each bubble enriched with {'text', 'ocr_conf'}."""
+    if not bubbles:
+        return bubbles
+    import cv2
+    reader = get_ocr_reader()
+    out = []
+    h, w = img.shape[:2]
+    for b in bubbles:
+        x1 = max(0, int(b['x1']) - pad)
+        y1 = max(0, int(b['y1']) - pad)
+        x2 = min(w, int(b['x2']) + pad)
+        y2 = min(h, int(b['y2']) + pad)
+        crop = img[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+        if upscale != 1.0:
+            crop = cv2.resize(crop, None, fx=upscale, fy=upscale,
+                              interpolation=cv2.INTER_CUBIC)
+        try:
+            results = reader.readtext(
+                crop,
+                allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
+                text_threshold=0.4, low_text=0.2,
+            )
+        except Exception:
+            continue
+        # Concatenate words in this single bubble (handles "CU-1" split as "CU" "-" "1")
+        toks = [(t, c) for _, t, c in results if c >= conf_threshold]
+        if not toks:
+            continue
+        text = ''.join(t for t, _ in toks).strip()
+        if not text:
+            continue
+        b2 = dict(b)
+        b2['text'] = text
+        b2['ocr_conf'] = sum(c for _, c in toks) / len(toks)
+        out.append(b2)
+    return out
+
+
 def ocr_near_detection(img, det, crop_size=180, conf_threshold=0.3):
     """
     Crop a region around a detection and OCR just that crop.

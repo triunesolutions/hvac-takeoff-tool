@@ -419,6 +419,74 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
 # bubble next to each equipment symbol. OCR the region around each detection
 # and match against the valid tag list for that YOLO class.
 
+def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
+    """Use the trained tag-bubble detector to find tight bubble bboxes, OCR
+    each one, then assign the closest matching valid tag to each untagged
+    detection. Higher precision than the windowed OCR fallback because we
+    OCR a tight bubble crop instead of a 150 px window of mixed content.
+
+    Returns (detections, stats). If the bubble detector model is missing
+    or no bubbles fire on this page, returns 0 tagged so the caller can
+    fall back to level2b_bubble_ocr.
+    """
+    if img is None or not class_to_tags:
+        return detections, {'level': '2b\'', 'method': 'bubble_detect', 'tagged': 0}
+
+    try:
+        from tag_matcher import detect_bubbles_on_page, ocr_bubble_crops, _normalize_for_match
+    except Exception as e:
+        return detections, {'level': '2b\'', 'method': 'bubble_detect',
+                              'tagged': 0, 'error': str(e)}
+
+    bubbles = detect_bubbles_on_page(img)
+    if not bubbles:
+        return detections, {'level': '2b\'', 'method': 'bubble_detect',
+                              'tagged': 0, 'bubbles': 0}
+
+    bubbles = ocr_bubble_crops(img, bubbles)
+    if not bubbles:
+        return detections, {'level': '2b\'', 'method': 'bubble_detect',
+                              'tagged': 0, 'bubbles_ocr': 0}
+
+    tagged = 0
+    for det in detections:
+        if det.get('tag'):
+            continue
+        cls = det.get('cls', '')
+        resolved_cls = _resolve_class(cls, class_to_tags)
+        if not resolved_cls:
+            continue
+        valid_tags = list(class_to_tags[resolved_cls].keys())
+        if not valid_tags:
+            continue
+        # normalized tag lookup
+        tag_lookup = {}
+        for t in valid_tags:
+            n = _normalize_for_match(t)
+            if n:
+                tag_lookup[n] = t
+
+        dcx, dcy = det.get('cx', 0), det.get('cy', 0)
+        best = None
+        best_dist = float('inf')
+        for b in bubbles:
+            n = _normalize_for_match(b.get('text', ''))
+            if not n or n not in tag_lookup:
+                continue
+            dist = ((b['cx'] - dcx) ** 2 + (b['cy'] - dcy) ** 2) ** 0.5
+            if dist < best_dist and dist <= max_distance:
+                best_dist = dist
+                best = tag_lookup[n]
+        if best:
+            det['tag'] = best
+            det['tag_method'] = 'bubble_detect'
+            det['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
+            tagged += 1
+
+    return detections, {'level': '2b\'', 'method': 'bubble_detect',
+                          'tagged': tagged, 'bubbles': len(bubbles)}
+
+
 def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
                          max_distance=140):
     """
@@ -644,10 +712,21 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
             )
             all_stats.append(stats2a)
 
-        # Level 2b: Bubble OCR — crop around each detection, OCR, match the
-        # result to the valid tag list for that class. This is the highest-
-        # yield level for schedules where the tag bubble ("CU-1") is printed
-        # next to each symbol on the drawing.
+        # Level 2b': Bubble DETECT — run the trained tag-bubble YOLO across
+        # the page, OCR each tight bubble crop, match against valid tags.
+        # Higher precision than the 150 px windowed OCR fallback below.
+        untagged_count = sum(1 for d in detections if not d.get('tag'))
+        if (untagged_count > 0 and variables and page_images
+                and page_idx in page_images):
+            detections, stats2bp = level2b_bubble_detect(
+                detections, class_to_tags, page_images[page_idx]
+            )
+            all_stats.append(stats2bp)
+
+        # Level 2b: Windowed bubble OCR — fallback when the bubble detector
+        # didn't find anything. Crops a fixed 150 px window around each
+        # detection and runs EasyOCR. Lower precision but higher recall on
+        # drawings the bubble model wasn't trained for.
         untagged_count = sum(1 for d in detections if not d.get('tag'))
         if (untagged_count > 0 and variables and page_images
                 and page_idx in page_images):
