@@ -1,6 +1,8 @@
 # HVAC AI Takeoff Tool — A Plain-English Guide
 
-*For non-technical readers. Last updated: April 21, 2026.*
+*For non-technical readers. Last updated: April 27, 2026.*
+
+> **Latest progress (April 27):** A second AI model — a "tag-bubble detector" — is currently training on Kaggle (~42/60 epochs at last check). When done, it will let us read tag labels (`A1`, `CU-1`) much more reliably. Also added: the CLI now prints project info (Project Name, Project Number, Sheet Title, Firm, Address, Date) at the top of every run.
 
 ---
 

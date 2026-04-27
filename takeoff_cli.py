@@ -200,6 +200,195 @@ def extract_project_info(pdf_path, max_pages=3):
         if m:
             info['address'] = _clean(m.group(1))
 
+    # Pass 5 — spatial label/value pairing for CAD title blocks (Gensler etc.)
+    try:
+        spatial = extract_project_info_spatial(pdf_path, max_pages=max_pages)
+        for k, v in spatial.items():
+            if k not in info or len(info.get(k, '')) < 2:
+                info[k] = v
+    except Exception:
+        pass
+
+    return info
+
+
+# Labels used by the spatial extractor. Each entry: (key, list of label-text variants).
+# Match is case-insensitive, exact-text after stripping trailing colon.
+SPATIAL_LABELS = [
+    ('project',     ['Project Name', 'Job Name', 'Job Title', 'Project']),
+    ('project_no',  ['Project Number', 'Project No.', 'Project No', 'Job Number', 'Job No.', 'Job No']),
+    ('description', ['Description', 'Sheet Title', 'Drawing Title']),
+    ('sheet',       ['Sheet Number', 'Sheet No.', 'Sheet No', 'Drawing Number', 'Drawing No.']),
+    ('scale',       ['Scale']),
+    ('date',        ['Date', 'Issue Date', 'Plot Date']),
+    ('engineer',    ['Drawn By', 'Designed By', 'Checked By', 'Engineer']),
+    ('firm',        ['Architect', 'Mechanical Engineer', 'MEP Engineer', 'Consultant']),
+]
+
+_LABEL_TEXTS_LC = {v.lower().rstrip(':') for _, vs in SPATIAL_LABELS for v in vs}
+
+
+def _spans_in_display_space(page):
+    """Return list of {bbox, cx, cy, w, h, text} spans in display coords."""
+    rot = page.rotation
+    mb_w, mb_h = float(page.mediabox.width), float(page.mediabox.height)
+    out = []
+    for block in page.get_text('dict').get('blocks', []):
+        if block.get('type') != 0:
+            continue
+        for line in block.get('lines', []):
+            for sp in line.get('spans', []):
+                txt = sp.get('text', '').strip()
+                if not txt:
+                    continue
+                x0, y0, x1, y1 = sp['bbox']
+                if rot == 270:
+                    dx0, dy0, dx1, dy1 = mb_h - y1, x0, mb_h - y0, x1
+                elif rot == 90:
+                    dx0, dy0, dx1, dy1 = y0, mb_w - x1, y1, mb_w - x0
+                elif rot == 180:
+                    dx0, dy0, dx1, dy1 = mb_w - x1, mb_h - y1, mb_w - x0, mb_h - y0
+                else:
+                    dx0, dy0, dx1, dy1 = x0, y0, x1, y1
+                out.append({
+                    'bbox': (dx0, dy0, dx1, dy1),
+                    'cx': (dx0 + dx1) / 2, 'cy': (dy0 + dy1) / 2,
+                    'w': dx1 - dx0, 'h': dy1 - dy0,
+                    'text': txt,
+                })
+    return out
+
+
+def _find_value_for_label(label_span, spans):
+    """Look for the value span paired with this label.
+    CAD title blocks usually place the value DIRECTLY ABOVE the label
+    (small label text under a larger value). Fall back to right-of-label.
+    """
+    lcx, lcy = label_span['cx'], label_span['cy']
+    lh = max(label_span['h'], 6.0)
+    lw = max(label_span['w'], 30.0)
+
+    candidates = []
+    for v in spans:
+        if v is label_span:
+            continue
+        vt = v['text'].strip()
+        if not vt or len(vt) < 1:
+            continue
+        if vt.lower().rstrip(':') in _LABEL_TEXTS_LC:
+            continue
+        if re.match(r'^[\W_]+$', vt):
+            continue
+        dx = v['cx'] - lcx
+        dy = v['cy'] - lcy   # negative => above in display
+        # ABOVE: CAD title blocks often have values that extend wider than the label.
+        # Allow generous horizontal tolerance; weight pick by value height (taller = sheet title font).
+        if abs(dx) <= max(lw * 3.0, 120) and -lh * 6 < dy < -lh * 0.2:
+            score = abs(dy) - v['h'] * 2.0   # prefer closest-above + tallest value
+            candidates.append((score, 0, v))
+        # RIGHT-OF: value to the right on same baseline (LABEL: VALUE inline rendered as separate span)
+        elif abs(dy) <= lh * 0.6 and 0 < dx < lw * 4:
+            candidates.append((dx, 1, v))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (t[1], t[0]))
+    return candidates[0][2]['text']
+
+
+def _find_value_with_height(label_span, spans):
+    """Same as _find_value_for_label but returns (text, height) so the caller
+    can rank competing label instances by value typography size."""
+    lcx, lcy = label_span['cx'], label_span['cy']
+    lh = max(label_span['h'], 6.0)
+    lw = max(label_span['w'], 30.0)
+    candidates = []
+    for v in spans:
+        if v is label_span:
+            continue
+        vt = v['text'].strip()
+        if not vt:
+            continue
+        if vt.lower().rstrip(':') in _LABEL_TEXTS_LC:
+            continue
+        if re.match(r'^[\W_]+$', vt):
+            continue
+        dx = v['cx'] - lcx
+        dy = v['cy'] - lcy
+        if abs(dx) <= max(lw * 3.0, 120) and -lh * 6 < dy < -lh * 0.2:
+            score = abs(dy) - v['h'] * 2.0
+            candidates.append((score, 0, v))
+        elif abs(dy) <= lh * 0.6 and 0 < dx < lw * 4:
+            candidates.append((dx, 1, v))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (t[1], t[0]))
+    best = candidates[0][2]
+    return best['text'], best['h']
+
+
+def extract_project_info_spatial(pdf_path, max_pages=3):
+    """Bbox-aware title-block extraction. Pairs each known label with the
+    nearest value above it (CAD style) or to its right (form style)."""
+    info = {}
+    try:
+        doc = fitz.open(str(pdf_path))
+    except Exception:
+        return info
+
+    # Title-block fields live only on the cover sheet. After page 1, we'd be
+    # picking up per-drawing detail callouts (e.g. SCALE: NONE under each detail
+    # box) which is not the project scale.
+    TITLEBLOCK_KEYS = {'project', 'project_no', 'description', 'sheet',
+                        'scale', 'date', 'engineer', 'firm'}
+
+    for page_idx in range(min(max_pages, len(doc))):
+        try:
+            page = doc[page_idx]
+            spans = _spans_in_display_space(page)
+        except Exception:
+            continue
+        if not spans:
+            continue
+
+        # Index labels by normalized exact text
+        label_lc_to_key = {}
+        for key, variants in SPATIAL_LABELS:
+            for v in variants:
+                label_lc_to_key.setdefault(v.lower(), key)
+
+        # Collect ALL (label, value, value_height) candidates per key, pick best
+        per_key = {}
+        for sp in spans:
+            t_norm = sp['text'].strip().rstrip(':').lower()
+            key = label_lc_to_key.get(t_norm)
+            if not key or key in info:
+                continue
+            # Only accept title-block fields on the cover sheet (page 0).
+            # Otherwise we pick up "SCALE: NONE" stamps printed under each
+            # detail drawing on later pages.
+            if page_idx > 0 and key in TITLEBLOCK_KEYS:
+                continue
+            pair = _find_value_with_height(sp, spans)
+            if not pair:
+                continue
+            val, vh = pair
+            val = _clean(val)
+            if _is_bad_value(val):
+                continue
+            if key in _FIELD_VALIDATORS and not _valid_field(key, val):
+                continue
+            # Keep the candidate with the tallest value text (real sheet titles
+            # are big; column-header "Description" values are small).
+            cur = per_key.get(key)
+            if cur is None or vh > cur[1]:
+                per_key[key] = (val, vh)
+
+        for key, (val, _) in per_key.items():
+            if key not in info:
+                info[key] = val
+
+    doc.close()
     return info
 
 
@@ -209,14 +398,16 @@ def print_project_info(info):
         print("Project info: (none detected in title block)")
         return
     label_map = [
-        ('project',  'Project'),
-        ('firm',     'Firm'),
-        ('engineer', 'Engineer'),
-        ('address',  'Address'),
-        ('sheet',    'Sheet'),
-        ('scale',    'Scale'),
-        ('date',     'Date'),
-        ('revision', 'Revision'),
+        ('project',     'Project'),
+        ('project_no',  'Project No.'),
+        ('description', 'Sheet Title'),
+        ('firm',        'Firm'),
+        ('engineer',    'Engineer'),
+        ('address',     'Address'),
+        ('sheet',       'Sheet'),
+        ('scale',       'Scale'),
+        ('date',        'Date'),
+        ('revision',    'Revision'),
     ]
     print("Project info (best-effort from title block):")
     for key, label in label_map:

@@ -1,7 +1,9 @@
 # HVAC AI Takeoff Tool — Engineering Reference
 
-**Last updated:** April 21, 2026
+**Last updated:** April 27, 2026
 **Purpose:** Technical reference for engineers (and future Claude Code sessions) working on the codebase. Read this before making changes.
+
+> **Resuming a Claude Code session?** Read this file end-to-end first. Sections 14–17 cover everything that happened after April 21, 2026: tag-bubble detector (Kaggle training in progress), spatial title-block extractor, current bottlenecks, and the "small files first" rule. The rest of the doc (sections 1–13) is still accurate as of April 21 — minor extensions are noted inline.
 
 ---
 
@@ -377,3 +379,129 @@ hvac-takeoff-tool/
 - **Don't commit training data (PDFs) or large artifacts** (yolo_dataset/, runs/).
 - **Always regression-check Flex 230** after parser changes — it's the known-good baseline.
 - **Keep the Excel output format identical to the team's Bluebeam format** — column order, header text, row grouping. They re-use the Excel downstream.
+- **Use small PDFs (≤15–20 MB) for dev/test.** Team is sourcing more small files. Get accurate on those first; large files (St Elizabeth 4+ GB) are deferred until the small-file pipeline is solid.
+
+---
+
+## 14. Tag-Bubble Detector (Phase 2 — IN PROGRESS as of April 27, 2026)
+
+**Goal:** A second YOLO model trained specifically to detect **tag bubbles** (the small `A1` / `CU-1` labels next to symbols). Used as a stronger Level-2b signal: instead of OCR-ing arbitrary 150 px crops, we first detect bubble bboxes, then OCR only those tight crops.
+
+**Why a separate model:** The production v9 model detects equipment classes (diffusers, fans, CUs). It does *not* localize tag bubbles. Tag bubbles are a different visual entity — small circles/ovals/rectangles with 1–4 chars of text inside, drawn near (but not on) the symbol they identify. Treating them as their own detection class lets us crop tightly for OCR and get higher recall than the current 150 px window heuristic.
+
+### 14.1 Pipeline (already built)
+
+```
+ground_truth.jsonl  +  90 Bluebeam takeoff PDFs
+        │
+        ▼
+build_tag_dataset.py            → tag_dataset/ (26,722 PNG crops, 320×320)
+                                  labels.jsonl with symbol bbox (source_rect_in_crop)
+        │                         per (project, page, count) sample
+        ▼
+label_tag_bubbles_ocr.py        → tag_bubble_labels.jsonl (one row per crop)
+  (Colab GPU, EasyOCR + fuzzy)    9,908 hits / 26,722 (37.1%) — realistic ceiling
+        │                         line-buffered + --resume (crash-safe)
+        ▼
+build_yolo_tag_dataset.py       → yolo_tag_dataset/ (YOLO 2-class)
+                                  23,306 train / 3,416 val crops
+                                  per-project split (9 val / 81 train, seed 42)
+                                  classes: 0=symbol  1=tag_bubble
+        │
+        ▼
+kaggle_train_tag_detector.ipynb → hvac_tag_detector_v1.pt
+  (Kaggle T4 ×2)                  YOLOv8s · 60 epochs · imgsz=320 · batch=64
+                                  ~2–3 hr full run
+```
+
+### 14.2 Files added in this phase
+
+| File | Role |
+|---|---|
+| `label_tag_bubbles.py` | Earlier text-layer approach (PyMuPDF `get_text("words")`). Got 17.8% on N=500 — abandoned. Tags are CAD vector paths, not text objects. Kept for reference. |
+| `label_tag_bubbles_ocr.py` | **Production OCR labeler.** Runs EasyOCR on each crop with the known target tag, fuzzy-matches with edit-distance ≤1 + OCR-confusion table (I↔1, O↔0, S↔5, Z↔2, B↔8, G↔6, T↔7, L↔1, Q↔0, D↔0). Otsu-binarized + 3× upscale before OCR. Line-buffered output (`buffering=1`) + `--resume` for crash safety. |
+| `colab_label_bubbles.ipynb` | Colab notebook: GPU check → upload script + dataset zip via `google.colab.files.upload()` → unzip → install easyocr → run labeler → download `tag_bubble_labels.jsonl`. **Used for the actual run.** |
+| `tag_bubble_labels.jsonl` | 26,722 rows. Each: `{img, tag, bubble_rect_in_crop, reason}`. 9,908 hits, 16,169 no_match, 645 no_text. Committed (3.7 MB) — feeds dataset builder. |
+| `build_yolo_tag_dataset.py` | Convert `tag_dataset/` + `tag_bubble_labels.jsonl` → YOLO-format. Per-project train/val split. Outputs `yolo_tag_dataset/{images,labels}/{train,val}/` + `data.yaml`. |
+| `kaggle_train_tag_detector.ipynb` | Kaggle T4 training notebook. Detects auto-extracted dataset path, regenerates `data.yaml` with Kaggle paths, trains YOLOv8s. Outputs `hvac_tag_detector_v1.pt`. |
+
+### 14.3 Status (as of April 27, 2026)
+
+- **Dataset prep:** ✅ Complete. Zipped `yolo_tag_dataset.zip` (574 MB, 53,445 entries) gitignored.
+- **Kaggle training:** 🔄 In progress. ~42 / 60 epochs at last check.
+- **Next:** When training completes, download `hvac_tag_detector_v1.pt` → integrate into `tag_inference.py` Level 2b. New flow: tag_bubble model on each page → for each detected bubble, OCR the bubble's tight crop → match against valid tags for the nearest equipment-detection class.
+
+### 14.4 Why 37.1% OCR hit rate is the floor (not a bug)
+
+- **17.3% of crops are MVD/symbol-only tags** with no readable bubble (just shapes).
+- Many tags are tiny inside small circles → EasyOCR can't read 8 px text reliably.
+- Improvements tried (allowlist, Otsu binarize, lower text_threshold, fuzzy match) plateaued at ~42% — accepted as good enough for ~10K bubble bboxes, which is plenty for a 2-class detector.
+
+### 14.5 Crash-safety lessons (carry forward)
+
+1. **Line-buffer file writes** when running on Colab: default Python text mode is block-buffered → 0 bytes on disk after 28 min of running, would lose hours on disconnect. Always pass `buffering=1` to `open()` and `python -u` to the entrypoint.
+2. **Use `python zipfile` not PowerShell `Compress-Archive`** for big trees — Compress-Archive stalled at 0 bytes for 1 min on 26K files; Python zipfile with `ZIP_STORED` did 580 MB in 11 s.
+3. **Colab disconnect banner ≠ session dead.** Backend keeps running. Don't close the tab.
+
+---
+
+## 15. Title-Block Metadata Extractor (April 27, 2026)
+
+`takeoff_cli.py` now extracts and prints project metadata at the top of every CLI run, alongside the existing schedule parsing.
+
+### 15.1 Two-pass approach
+
+1. **`extract_project_info(pdf)`** — regex-based passes over `page.get_text("text")`:
+   - Pass 1: inline `LABEL: VALUE` patterns (`SCALE:`, `DATE:`, `PROJECT NAME:`, etc.)
+   - Pass 2: stacked labels (label on one line, value on the next non-empty line — for simple title blocks)
+   - Pass 3: firm-name regex (ALL CAPS + `ENGINEERING|CONSULTANTS|ASSOCIATES|...`)
+   - Pass 4: street-address regex
+   - Pass 5: **calls** `extract_project_info_spatial()` and merges results.
+
+2. **`extract_project_info_spatial(pdf)`** — bbox-aware extraction for CAD title blocks (e.g., Gensler) where labels and values are placed in a graphic grid. For each known label span (`Project Name`, `Project Number`, `Description`, `Sheet`, `Scale`, `Date`, `Drawn By`, etc.):
+   - Convert all spans from mediabox → display coords (handles 270° rotation).
+   - Find the value span **directly above** the label within ~3× label width and ~6× label height (CAD layout). Fallback: span to the right on same baseline (form-style layout).
+   - When multiple instances of the same label exist on a page (e.g., a `Description` column header in the Mechanical Legend table AND the real sheet description), pick the candidate whose value span has the **largest text height** — sheet titles are typographically larger than column header values.
+   - **Title-block fields are restricted to page 0** to avoid picking up per-drawing scale callouts (`SCALE: NONE` printed under each detail box on later pages).
+
+### 15.2 Output keys
+
+`project`, `project_no`, `description` (sheet title), `sheet` (sheet number), `scale`, `date`, `engineer`, `firm`, `address`, `revision`. Printed in `print_project_info()`. Written to `{pdf_stem}_project_info.json` sidecar.
+
+### 15.3 Verified on Flex 230
+
+```
+Project     FLEX+ 220
+Project No. 55.4020.332
+Sheet Title MECHANICAL TITLE SHEET
+Firm        PLUM ENGINEERING, INC.
+Address     9530 TOWNE CENTRE DRIVE
+Date        06.02.25
+```
+
+### 15.4 Known gaps
+
+- **Sheet number (e.g., `M001`)** not labeled in Gensler title blocks — sits as a bare span. Needs a typography heuristic (find the tallest standalone span matching `^[A-Z]\d{2,4}$` near the title-block region).
+- **Date is the *oldest* issue** from the revision history table, not the latest. Need to pick the largest date or the date in the last "ISSUE" row.
+- **Engineer initials** (e.g., `JE | MG | RW`) live in the issue history grid, not a single labeled cell. Treated as low priority.
+- **Confirmed:** Flex 230 has no title-block scale at all. The previous `Scale: NONE` was bleeding in from per-drawing scale stamps on later pages — fixed by restricting title-block fields to page 0.
+
+---
+
+## 16. Memory and User Preferences (cross-session)
+
+These have been saved into the user's `~/.claude/projects/.../memory/` and persist across Claude Code sessions:
+
+- **Communication style:** Blunt, honest, push back when wrong. Don't sugarcoat accuracy numbers.
+- **Repo sync:** Commit and push to `triunesolutions/hvac-takeoff-tool` regularly. Implicit authorization for routine commits.
+- **Small files first:** Use PDFs ≤15–20 MB for dev/test until pipeline is accurate. Big PDFs (St Elizabeth) are Phase-2.
+- **Bluebeam ground-truth calibration:** Team is preparing a CSV export to calibrate detection accuracy. Not yet delivered.
+
+---
+
+## 17. Pending / Next-Up
+
+1. **Train + integrate tag-bubble detector** — Kaggle run finishing today. After download, wire `hvac_tag_detector_v1.pt` into `tag_inference.py` Level 2b.
+2. **Title-block extractor improvements** — sheet number heuristic, latest-date selection, engineer-initials parsing.
+3. **Class aliasing layer** — `SPLIT SYSTEM` (YOLO) → `CONDENSING UNIT` (schedule), `AD-GRD` family alignment. Listed in Phase 2 roadmap; needed to close the United Mechanical 78-untagged gap.
+4. **Larger small-file test set** — team is sourcing more PDFs in the ≤20 MB band.

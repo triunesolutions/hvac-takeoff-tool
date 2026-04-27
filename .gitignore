@@ -48,3 +48,15 @@ tag_dataset/
 tag_dataset_test/
 tag_dataset_build.log
 debug_*.png
+debug_misses/
+
+# Tag-detection zips and YOLO dataset (large, regeneratable)
+tag_dataset.zip
+yolo_tag_dataset.zip
+yolo_tag_dataset/
+
+# OCR labeling sample/log artifacts (regeneratable; full results go in tag_bubble_labels.jsonl)
+tag_bubble_labels.log
+tag_bubble_sample*.jsonl
+yolo_zip.log
+zip.log
