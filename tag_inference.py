@@ -58,6 +58,13 @@ TAG_PREFIX_CLASS = {
     'ER': 'AD-GRD',        # exhaust register
     # Linear diffusers
     'LD': 'AD-LINEAR PLENUM',
+    # Single-letter air-device tag prefixes (Sola-style schedules: S-1, R-1, E-1).
+    # These are checked LAST in _infer_class_from_tag (shortest prefixes lose to
+    # longer matches like EF/SF/RF/SD), so they only fire for bare single-letter
+    # tags. Class is broad — refined by SERVICE/MOUNTING inference at parse time.
+    'S': 'AD-T-BAR SUPPLY',
+    'R': 'AD-T-BAR RETURN',
+    'E': 'AD-T-BAR RETURN',   # exhaust grilles use the same return-grille product
 }
 
 # Map YOLO detection class names to the schedule-inferred class family.
@@ -69,7 +76,33 @@ YOLO_CLASS_ALIASES = {
     'PACKAGED ROOFTOP UNIT': 'PACKAGED ROOFTOP UNIT',
     'MANUAL VOLUME DAMPER': 'MOTORIZED DAMPER',  # YOLO often can't tell them apart
     'VENT CAP': 'EXHAUST FAN',                     # vent caps sit atop exhaust fans
+    # AD-GRD is the YOLO 'air device grille' generic class. Bubble OCR
+    # disambiguates between supply/return/surface/linear by reading the tag
+    # text. Matching against a list of candidate classes keeps Level 2b'
+    # working when YOLO can't tell which AD-* sub-class a symbol belongs to.
+    'AD-GRD': [
+        'AD-T-BAR SUPPLY', 'AD-T-BAR RETURN',
+        'AD-SURF SUPPLY', 'AD-SURF RETURN',
+        'AD-LINEAR SLOT DIFFUSER', 'AD-LINEAR PLENUM',
+    ],
 }
+
+
+def _expand_class_for_bubble(yolo_class, class_to_tags):
+    """Return list of class keys whose tags should be considered for a bubble
+    detection of this YOLO class. Used by Level 2b' (bubble_detect) where the
+    OCR'd bubble text disambiguates between candidate sub-classes."""
+    candidates = []
+    if yolo_class in class_to_tags:
+        candidates.append(yolo_class)
+    alias = YOLO_CLASS_ALIASES.get(yolo_class)
+    if isinstance(alias, list):
+        for a in alias:
+            if a in class_to_tags and a not in candidates:
+                candidates.append(a)
+    elif alias and alias in class_to_tags and alias not in candidates:
+        candidates.append(alias)
+    return candidates
 
 
 def _resolve_class(yolo_class, class_to_tags):
@@ -80,6 +113,10 @@ def _resolve_class(yolo_class, class_to_tags):
     if yolo_class in class_to_tags:
         return yolo_class
     alias = YOLO_CLASS_ALIASES.get(yolo_class)
+    # List-form aliases mean "ambiguous between these candidates" — only the
+    # bubble-OCR level can disambiguate. Bail here so Level 1 doesn't pick one.
+    if isinstance(alias, list):
+        return None
     if alias and alias in class_to_tags:
         return alias
     return None
@@ -260,7 +297,12 @@ def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
     tagged = 0
     for det in detections:
         cls = det.get('cls', '')
-        resolved = cls if cls in auto_map else YOLO_CLASS_ALIASES.get(cls)
+        if cls in auto_map:
+            resolved = cls
+        else:
+            alias = YOLO_CLASS_ALIASES.get(cls)
+            # Skip list-form aliases — those mean "ambiguous, needs bubble OCR".
+            resolved = alias if isinstance(alias, str) else None
         if resolved and resolved in auto_map:
             det['tag'] = auto_map[resolved]
             det['tag_method'] = 'direct'
@@ -449,25 +491,29 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
                               'tagged': 0, 'bubbles_ocr': 0}
 
     tagged = 0
+    reclassified = 0
     for det in detections:
         if det.get('tag'):
             continue
         cls = det.get('cls', '')
-        resolved_cls = _resolve_class(cls, class_to_tags)
-        if not resolved_cls:
+        candidate_classes = _expand_class_for_bubble(cls, class_to_tags)
+        if not candidate_classes:
             continue
-        valid_tags = list(class_to_tags[resolved_cls].keys())
-        if not valid_tags:
-            continue
-        # normalized tag lookup
-        tag_lookup = {}
-        for t in valid_tags:
-            n = _normalize_for_match(t)
-            if n:
-                tag_lookup[n] = t
+        # Build a normalized tag lookup over the union of candidate classes,
+        # remembering which class each tag came from so we can reclassify the
+        # detection when the bubble disambiguates a generic AD-GRD prediction.
+        tag_lookup = {}        # normalized → original tag string
+        tag_to_class = {}      # normalized → class key
+        for cc in candidate_classes:
+            for t in class_to_tags[cc].keys():
+                n = _normalize_for_match(t)
+                if n and n not in tag_lookup:
+                    tag_lookup[n] = t
+                    tag_to_class[n] = cc
 
         dcx, dcy = det.get('cx', 0), det.get('cy', 0)
         best = None
+        best_norm = None
         best_dist = float('inf')
         for b in bubbles:
             n = _normalize_for_match(b.get('text', ''))
@@ -477,14 +523,23 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
             if dist < best_dist and dist <= max_distance:
                 best_dist = dist
                 best = tag_lookup[n]
+                best_norm = n
         if best:
             det['tag'] = best
             det['tag_method'] = 'bubble_detect'
             det['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
+            # Reclassify the detection to the resolved class so the Excel
+            # row groups under the right product (AD-T-BAR SUPPLY etc.).
+            resolved = tag_to_class.get(best_norm)
+            if resolved and resolved != cls:
+                det['cls'] = resolved
+                det['original_yolo_cls'] = cls
+                reclassified += 1
             tagged += 1
 
     return detections, {'level': '2b\'', 'method': 'bubble_detect',
-                          'tagged': tagged, 'bubbles': len(bubbles)}
+                          'tagged': tagged, 'bubbles': len(bubbles),
+                          'reclassified': reclassified}
 
 
 def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
