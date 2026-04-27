@@ -501,7 +501,45 @@ These have been saved into the user's `~/.claude/projects/.../memory/` and persi
 
 ## 17. Pending / Next-Up
 
-1. **Train + integrate tag-bubble detector** — Kaggle run finishing today. After download, wire `hvac_tag_detector_v1.pt` into `tag_inference.py` Level 2b.
-2. **Title-block extractor improvements** — sheet number heuristic, latest-date selection, engineer-initials parsing.
-3. **Class aliasing layer** — `SPLIT SYSTEM` (YOLO) → `CONDENSING UNIT` (schedule), `AD-GRD` family alignment. Listed in Phase 2 roadmap; needed to close the United Mechanical 78-untagged gap.
-4. **Larger small-file test set** — team is sourcing more PDFs in the ≤20 MB band.
+1. **Train + integrate tag-bubble detector** — DONE. `hvac_tag_detector_v1.pt` wired into `tag_inference.py` as Level 2b' (`level2b_bubble_detect`). Old windowed OCR remains as a fallback.
+2. **Class aliasing layer** — DONE for the AD-GRD family. `YOLO_CLASS_ALIASES['AD-GRD']` is now a list `[AD-T-BAR SUPPLY, AD-T-BAR RETURN, AD-SURF SUPPLY, ...]` with `_expand_class_for_bubble()` letting the bubble-OCR text disambiguate. Single-letter tag prefixes (`S`/`R`/`E`) added to `TAG_PREFIX_CLASS`.
+3. **Title-block extractor improvements** — sheet number heuristic, latest-date selection, engineer-initials parsing.
+4. **Benchmark across the 35-project sample set** — DONE. `benchmark_samples.py` runs the CLI on every project under `SAMPLE FILES 27.04.26/`, scores our generated xlsx vs the team's `Completed Takeoff/*.xlsx` by per-product and per-(product, tag) QTY overlap. See section 18.
+
+---
+
+## 18. Sample-Project Benchmark
+
+`benchmark_samples.py` is the regression bar for any pipeline change.
+
+**Input dataset:** `C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26\` — ~35 small commercial projects (median 2.77 MB, 87/141 PDFs <5 MB), each with both `Plans_Specs/<plan>.pdf` and `Completed Takeoff/<takeoff>.xlsx`.
+
+**Run:**
+```
+python benchmark_samples.py                              # all projects (~50–60 min)
+python benchmark_samples.py --projects "Sola Salons"     # subset
+python benchmark_samples.py --cache                      # skip projects with existing xlsx
+```
+
+**Outputs (in `benchmark_output/`, gitignored):**
+- `benchmark_results.csv` — one row per project: status, team_total, our_total, product_recall, product_precision, tag_recall, tag_precision, schedule_tags_found, runtime_s.
+- `benchmark_per_product.csv` — one row per (project, product): team_qty, our_qty, match_qty, over, under.
+- `benchmark_summary.md` — leaderboard + status breakdown + top-10/bottom-10.
+
+**Score model:**
+- `match_qty = min(team_qty, our_qty)` per product (or per product+tag).
+- `recall = sum(match) / sum(team)` — what fraction of the team's count we caught.
+- `precision = sum(match) / sum(ours)` — what fraction of our detections were real.
+- Per-tag is secondary because some teams use manufacturer-as-tag (Krispy Kreme: `KRUEGER`/`MARS`/`BERNER`) — tag_recall will be low there even when product_recall is fine.
+
+**What scores tell you:**
+- **`status == 'crashed'`** → the CLI subprocess died. Look at `error` column for the stderr tail.
+- **`status == 'no_detections'`** → CLI ran but YOLO found zero equipment. Probably wrong page selection.
+- **`schedule_tags_found == 0`** → `parse_pdf_schedules` couldn't find any tags. Schedule parser issue, fix in `schedule_parser.py`.
+- **`product_recall > 0` but `tag_recall == 0`** → detection works, tag inference doesn't. Probably the `class_to_tags` map is empty for the YOLO classes we found — check `_resolve_class` and `TAG_PREFIX_CLASS`.
+- **`our_total >> team_total` (low precision)** → YOLO over-detection. Bump confidence threshold or retrain.
+- **`our_total << team_total` (low recall)** → YOLO under-detection. Need v10 with these projects in training data.
+
+**Reference numbers (April 2026 baseline, post bubble-detector + class-aliasing):**
+- Sola Salons: product_recall ≈ 32% (32 / 100 truth caught) — best case for current pipeline shape.
+- 677 Imperial / Alliance / Krispy Kreme: 0% — three different failure modes documented in commit history.

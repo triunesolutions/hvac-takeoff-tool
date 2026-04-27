@@ -55,6 +55,9 @@ tag_dataset.zip
 yolo_tag_dataset.zip
 yolo_tag_dataset/
 
+# Per-run benchmark outputs (per-project takeoff dirs are large, regeneratable)
+benchmark_output/
+
 # OCR labeling sample/log artifacts (regeneratable; full results go in tag_bubble_labels.jsonl)
 tag_bubble_labels.log
 tag_bubble_sample*.jsonl
