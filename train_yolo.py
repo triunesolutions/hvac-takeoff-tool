@@ -396,6 +396,9 @@ if __name__ == "__main__":
     parser.add_argument('--all', action='store_true', help='Train on all projects')
     parser.add_argument('--projects', nargs='+', help='Project ID prefixes (e.g., 01 02 03)')
     parser.add_argument('--resume', action='store_true', help='Resume interrupted training')
+    parser.add_argument('--prepare-only', action='store_true',
+                        help='Run dataset extraction/tiling only — skip training. '
+                             'Use this locally before uploading the dataset to Kaggle.')
     args = parser.parse_args()
 
     if args.resume:
@@ -410,4 +413,10 @@ if __name__ == "__main__":
             project_ids = ['01', '02', '03', '04']
 
         config_path, classes = prepare_dataset(project_ids)
-        train_model(config_path)
+        if args.prepare_only:
+            print(f"\n--prepare-only set. Skipping training.")
+            print(f"Dataset config:  {config_path}")
+            print(f"Classes ({len(classes)}): {sorted(classes)}")
+            print(f"Next: zip yolo_dataset/ and upload to Kaggle.")
+        else:
+            train_model(config_path)
