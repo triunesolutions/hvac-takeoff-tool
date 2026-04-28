@@ -1,0 +1,208 @@
+project,class,count
+4.10.26 HVAC Replacement At The Leadership Academy - Lancaster,Cloud,2
+4.10.26 HVAC Replacement At The Leadership Academy - Lancaster,EXHAUST FAN,2
+4.10.26 HVAC Replacement At The Leadership Academy - Lancaster,AD-SURF SUPPLY,1
+4.10.26 HVAC Replacement At The Leadership Academy - Lancaster,AD-SURF RETURN,1
+4.10.26 Woodbridge HS Modernization - Bldg J & K,LOUVER,92
+4.10.26 Woodbridge HS Modernization - Bldg J & K,AD-SURF RETURN,27
+4.10.26 Woodbridge HS Modernization - Bldg J & K,AD-SURF SUPPLY,11
+4.10.26 Woodbridge HS Modernization - Bldg J & K,EXHAUST FAN,11
+4.11.26 Total Wine & More - Store #1149,AD-SURF SUPPLY,18
+4.11.26 Total Wine & More - Store #1149,AD-SURF RETURN,12
+4.11.26 Total Wine & More - Store #1149,AD-LINEAR PLENUM,8
+4.11.26 Total Wine & More - Store #1149,AD-T-BAR RETURN,6
+4.11.26 Total Wine & More - Store #1149,AD-T-BAR SUPPLY,4
+4.11.26 Total Wine & More - Store #1149,FANS,3
+4.11.26 Total Wine & More - Store #1149,AD-LINEAR SLOT DIFFUSER,3
+4.11.26 Total Wine & More - Store #1149,AIR CURTAIN-AMBIENT,2
+4.11.26 Total Wine & More - Store #1149,FOG FAN,1
+4.13.26 AALRR - Citrus Tower,AD-T-BAR SUPPLY,26
+4.13.26 AALRR - Citrus Tower,AD-T-BAR RETURN,20
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),AD-SURF SUPPLY,95
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),AD-SURF RETURN,19
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),VARIABLE VOLUME BOX,11
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),FANS,3
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),FIRE SMOKE DAMPER,3
+4.13.26 Erewhon - Pacific Palisades,AD-SURF SUPPLY,46
+4.13.26 Erewhon - Pacific Palisades,AD-SURF RETURN,10
+4.13.26 Erewhon - Pacific Palisades,FANS,3
+4.13.26 Erewhon - Pacific Palisades,Cloud,1
+4.13.26 Krispy Kreme #574 - Valencia,AD-T-BAR SUPPLY,16
+4.13.26 Krispy Kreme #574 - Valencia,AD-T-BAR RETURN,7
+4.13.26 Krispy Kreme #574 - Valencia,AIR CURTAIN,4
+4.13.26 Krispy Kreme #574 - Valencia,FANS,4
+4.13.26 Krispy Kreme #574 - Valencia,AD-SURF SUPPLY,3
+4.13.26 Krispy Kreme #574 - Valencia,AD-SURF RETURN,3
+4.13.26 Krispy Kreme #574 - Valencia,HOOD,2
+4.13.26 Rady's Children - Temecula Plaza,AD-T-BAR SUPPLY,43
+4.13.26 Rady's Children - Temecula Plaza,AD-T-BAR RETURN,39
+4.13.26 Rady's Children - Temecula Plaza,FD/FSD,20
+4.13.26 Rady's Children - Temecula Plaza,AD-SURF SUPPLY,12
+4.13.26 Rady's Children - Temecula Plaza,AD-SURF RETURN,7
+4.13.26 Rady's Children - Temecula Plaza,FANS,2
+4.13.26 Skytron Modern Aviation Bldg B TI,AD-SURF SUPPLY,33
+4.13.26 Skytron Modern Aviation Bldg B TI,AD-SURF RETURN,10
+4.13.26 Skytron Modern Aviation Bldg B TI,LOUVERS,6
+4.13.26 Skytron Modern Aviation Bldg B TI,FIRE SMOKE DAMPER,4
+4.13.26 The Bungalow - San Diego,AD-SURF SUPPLY,33
+4.13.26 The Bungalow - San Diego,AD-SURF RETURN,25
+4.13.26 The Bungalow - San Diego,FIRE SMOKE DAMPER,11
+4.13.26 The Bungalow - San Diego,EXHAUST FAN,4
+4.14.26 BMO Santee CA De Novo 2026 Reno,AD-T-BAR SUPPLY,22
+4.14.26 BMO Santee CA De Novo 2026 Reno,AD-T-BAR RETURN,12
+4.14.26 BMO Santee CA De Novo 2026 Reno,AD-SURF RETURN,3
+4.14.26 BMO Santee CA De Novo 2026 Reno,AD-SURF SUPPLY,2
+4.14.26 BMO Santee CA De Novo 2026 Reno,FANS,1
+4.14.26 Fendi - Fashion Valley,"AD-LINEAR PLENUM 2"" SLOT",22
+4.14.26 Fendi - Fashion Valley,AD-T-BAR SUPPLY,17
+4.14.26 Fendi - Fashion Valley,"AD-LINEAR SLOT DIFFUSER 2"" SLOT",15
+4.14.26 Fendi - Fashion Valley,AD-T-BAR RETURN,10
+4.14.26 Fendi - Fashion Valley,AD-SURF RETURN,6
+4.14.26 Fendi - Fashion Valley,MOTORIZED DAMPER,4
+4.14.26 Fendi - Fashion Valley,FANS,2
+4.14.26 Fendi - Fashion Valley,AD-SURF SUPPLY,2
+4.14.26 Saint Mary's Stadium Clubhouse,AD-SURF SUPPLY,28
+4.14.26 Saint Mary's Stadium Clubhouse,AD-SURF RETURN,21
+4.14.26 Saint Mary's Stadium Clubhouse,LOUVER,7
+4.14.26 Saint Mary's Stadium Clubhouse,FANS,7
+4.14.26 ScanHealth - Cerritos,TRANSFER FAN,14
+4.14.26 ScanHealth - Cerritos,ELECTRIC HEATERS,14
+4.14.26 ScanHealth - Cerritos,AD-LINEAR SLOT DIFFUSER,11
+4.14.26 ScanHealth - Cerritos,AD-LINEAR PLENUM,11
+4.14.26 ScanHealth - Cerritos,AD-T-BAR SUPPLY,10
+4.15.26 9020 Aviation,AD-SURF SUPPLY,26
+4.15.26 9020 Aviation,FANS,15
+4.15.26 9020 Aviation,AD-T-BAR SUPPLY,9
+4.15.26 9020 Aviation,"AD-LINEAR PLENUM 2-1"" SLOT",8
+4.15.26 9020 Aviation,AD-T-BAR RETURN,5
+4.15.26 9020 Aviation,AD-SURF RETURN,5
+4.15.26 9020 Aviation,"AD-LINEAR SLOT DIFFUSER 2-1"" SLOT",2
+4.15.26 9020 Aviation,FIRE SMOKE DAMPER,2
+4.15.26 Free People - 6300 W. 3rd Street,AD-SURF SUPPLY,15
+4.15.26 Free People - 6300 W. 3rd Street,AD-T-BAR SUPPLY,12
+4.15.26 Free People - 6300 W. 3rd Street,MOTORIZED DAMPER,6
+4.15.26 Free People - 6300 W. 3rd Street,AD-SURF RETURN,5
+4.15.26 Free People - 6300 W. 3rd Street,EXHAUST FAN,2
+4.15.26 Free People - 6300 W. 3rd Street,BACKDRAFT DAMPER,2
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-LINEAR PLENUM,22
+4.15.26 Ontario Museum Of History & Art - North Gallery,LOUVERS,7
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-LINEAR SLOT DIFFUSER,4
+4.15.26 Ontario Museum Of History & Art - North Gallery,EXHAUST FAN,3
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-SURF SUPPLY,3
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-SURF RETURN,2
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-T-BAR RETURN,1
+4.15.26 Ontario Museum Of History & Art - North Gallery,AD-T-BAR SUPPLY,1
+4.15.26 Sola Salons,AD-T-BAR RETURN,54
+4.15.26 Sola Salons,AD-T-BAR SUPPLY,38
+4.15.26 Sola Salons,EXHAUST FAN,5
+4.15.26 Sola Salons,AD-SURF SUPPLY,3
+4.16.26 Best RV Turlock,AD-T-BAR SUPPLY,105
+4.16.26 Best RV Turlock,AD-T-BAR RETURN,98
+4.16.26 Best RV Turlock,AD-LINEAR PLENUM,69
+4.16.26 Best RV Turlock,AD-LINEAR SLOT DIFFUSER,25
+4.16.26 Best RV Turlock,AD-SURF RETURN,23
+4.16.26 Best RV Turlock,EXHAUST FAN,16
+4.16.26 Best RV Turlock,AD-SURF SUPPLY,15
+4.16.26 Best RV Turlock,HVLS FAN,4
+4.16.26 Harbor Freight - Napa,AD-SURF RETURN,7
+4.16.26 Harbor Freight - Napa,AD-SURF SUPPLY,7
+4.16.26 Harbor Freight - Napa,EXHAUST FAN,4
+4.16.26 Harbor Freight - Napa,AD-T-BAR SUPPLY,3
+4.16.26 Harbor Freight - Napa,AD-T-BAR RETURN,3
+4.16.26 Harbor Freight - Napa,ELECTRIC CABINATE UNIT HEATER,1
+4.16.26 Harbor Freight - Napa,VENT CAP,1
+4.16.26 Harbor Freight - Napa,GAS UNIT HEATER,1
+4.16.26 JPMC One Paseo 2nd Floor Expansion,AD-SURF RETURN,26
+4.16.26 JPMC One Paseo 2nd Floor Expansion,AD-T-BAR SUPPLY,24
+4.16.26 JPMC One Paseo 2nd Floor Expansion,AD-T-BAR RETURN,15
+4.16.26 JPMC One Paseo 2nd Floor Expansion,AD-LINEAR PLENUM,10
+4.16.26 JPMC One Paseo 2nd Floor Expansion,AD-LINEAR SLOT DIFFUSER,4
+4.16.26 JPMC One Paseo 2nd Floor Expansion,FIRE SMOKE DAMPER,3
+4.16.26 OSI Irvine Relocation (OSI Pacifica),AD-T-BAR SUPPLY,85
+4.16.26 OSI Irvine Relocation (OSI Pacifica),AD-T-BAR RETURN,70
+4.16.26 OSI Irvine Relocation (OSI Pacifica),"AD-LINEAR PLENUM 2-1"" SLOT",7
+4.16.26 OSI Irvine Relocation (OSI Pacifica),AD-SURF SUPPLY,5
+4.16.26 OSI Irvine Relocation (OSI Pacifica),AD-SURF RETURN,4
+4.16.26 OSI Irvine Relocation (OSI Pacifica),"AD-LINEAR SLOT DIFFUSER 2-1"" SLOT",2
+4.16.26 OSI Irvine Relocation (OSI Pacifica),AD-LINEAR SLOT DIFFUSER 2 SLOT,2
+4.16.26 OSI Irvine Relocation (OSI Pacifica),FANS,1
+4.16.26 OSI Irvine Relocation (OSI Pacifica),MOTORIZED DAMPER,1
+4.16.26 OSI Irvine Relocation (OSI Pacifica),LOUVERS,1
+4.16.26 TVUSD Temecula ES Renovation,AD-T-BAR SUPPLY,17
+4.16.26 TVUSD Temecula ES Renovation,AD-T-BAR RETURN,9
+4.16.26 TVUSD Temecula ES Renovation,ROOF CAP,2
+4.16.26 Zion Market - Shell Improvements,LOUVERS,37
+4.16.26 Zion Market - Shell Improvements,OUTSIDE AIR FAN-COMMON AREA,24
+4.16.26 Zion Market - Shell Improvements,EXHAUST FAN-COMMON AREA,14
+4.16.26 Zion Market - Shell Improvements,EXHAUST FAN-JANITOR/RESTROOM,13
+4.16.26 Zion Market - Shell Improvements,AD-SURF SUPPLY,1
+4.17.26 Alliance Mass Stern Remodel,AD-T-BAR SUPPLY,16
+4.17.26 Alliance Mass Stern Remodel,AD-T-BAR RETURN,8
+4.17.26 Alliance Mass Stern Remodel,GOOSENECK,7
+4.17.26 Alliance Mass Stern Remodel,LOUVER,4
+4.17.26 Alliance Mass Stern Remodel,EXHAUST FAN,3
+4.17.26 Alliance Mass Stern Remodel,SUPPLY FAN,3
+4.17.26 Alliance Mass Stern Remodel,AD-SURF SUPPLY,2
+4.17.26 Bradley Terraces - Skilled Nursing Facility,AD-SURF SUPPLY,69
+4.17.26 Bradley Terraces - Skilled Nursing Facility,AD-SURF RETURN,63
+4.17.26 Bradley Terraces - Skilled Nursing Facility,FIRE SMOKE DAMPER,25
+4.17.26 Bradley Terraces - Skilled Nursing Facility,EXHAUST FAN,3
+4.17.26 Bradley Terraces - Skilled Nursing Facility,KITCHEN EXHAUST FAN,1
+4.17.26 Bradley Terraces - Skilled Nursing Facility,LOUVER,1
+4.17.26 Bradley Terraces - Skilled Nursing Facility,SUPPLY FAN,1
+4.17.26 LBUSD Stevenson ES,AD-T-BAR SUPPLY,119
+4.17.26 LBUSD Stevenson ES,AD-T-BAR RETURN,36
+4.17.26 LBUSD Stevenson ES,AD-SURF RETURN,25
+4.17.26 LBUSD Stevenson ES,EXHAUST FAN,13
+4.17.26 LBUSD Stevenson ES,GRAVITY VENTILATOR,10
+4.17.26 LBUSD Stevenson ES,AD-SURF SUPPLY,5
+4.17.26 LBUSD Stevenson ES,LOUVER,3
+4.18.26 Acushnet Bldg 1 TI,AD-LINEAR PLENUM 1 SLOT,68
+4.18.26 Acushnet Bldg 1 TI,AD-LINEAR SLOT DIFFUSER 1 SLOT,39
+4.18.26 Acushnet Bldg 1 TI,AD-SURF SUPPLY,30
+4.18.26 Acushnet Bldg 1 TI,AD-T-BAR SUPPLY,21
+4.18.26 Acushnet Bldg 1 TI,AD-SURF RETURN,19
+4.18.26 Acushnet Bldg 1 TI,AD-T-BAR RETURN,10
+4.18.26 Acushnet Bldg 1 TI,FANS,6
+4.18.26 Acushnet Bldg 1 TI,LOUVERS,3
+4.18.26 MBUSD Manhattan Beach MS,EXHAUST FAN,1
+4.18.26 MBUSD Mira Costa HS,EXHAUST FANS,2
+4.18.26 UCLA Health Oncology TI,AD-T-BAR SUPPLY,126
+4.18.26 UCLA Health Oncology TI,AD-T-BAR RETURN,101
+4.18.26 UCLA Health Oncology TI,AD-SURF RETURN,38
+4.18.26 UCLA Health Oncology TI,AD-SURF SUPPLY,12
+4.18.26 UCLA Health Oncology TI,OPPOSED BLADE DAMPER,11
+4.18.26 UCLA Health Oncology TI,EXHAUST FAN,7
+4.18.26 UCLA Health Oncology TI,"AD-LINEAR SLOT DIFFUSER 1-2"" SLOT",6
+4.18.26 UCLA Health Oncology TI,"AD-LINEAR PLENUM 1-2"" SLOT",6
+4.18.26 UCLA Health Oncology TI,FIRE SMOKE DAMPER,2
+4.21.26 677 Imperial Street - TI,AD-SURF SUPPLY,51
+4.21.26 677 Imperial Street - TI,AD-SURF RETURN,4
+4.21.26 677 Imperial Street - TI,DAMPERS,4
+4.21.26 Anaheim 82,AD-T-BAR SUPPLY,20
+4.21.26 Anaheim 82,AD-T-BAR RETURN,10
+4.21.26 Anaheim 82,FANS,7
+4.21.26 Anaheim 82,AD-SURF SUPPLY,4
+4.21.26 Anaheim 82,AD-SURF RETURN,4
+4.21.26 Anaheim 82,AD-LINEAR SLOT DIFFUSER,4
+4.21.26 Anaheim 82,AD-LINEAR PLENUM,4
+4.21.26 Autry Museum Of The American West - Cafe And Kitchen,AD-SURF SUPPLY,11
+4.21.26 Autry Museum Of The American West - Cafe And Kitchen,AD-LINEAR SLOT DIFFUSER,6
+4.21.26 Autry Museum Of The American West - Cafe And Kitchen,AD-LINEAR PLENUM,6
+4.21.26 Autry Museum Of The American West - Cafe And Kitchen,AD-SURF RETURN,2
+4.21.26 Space Shuttle Exhibit And Education Bldg,AD-SURF SUPPLY,20
+4.21.26 Space Shuttle Exhibit And Education Bldg,AD-SURF RETURN,19
+4.21.26 Space Shuttle Exhibit And Education Bldg,AD-T-BAR SUPPLY,11
+4.21.26 Space Shuttle Exhibit And Education Bldg,AD-T-BAR RETURN,8
+4.21.26 Space Shuttle Exhibit And Education Bldg,LOUVERS,5
+4.21.26 Space Shuttle Exhibit And Education Bldg,WALL CAP,3
+4.21.26 Space Shuttle Exhibit And Education Bldg,ELECTRONIC REMOTE DAMPER,3
+4.21.26 Space Shuttle Exhibit And Education Bldg,HVLS CEILING FANS,2
+4.21.26 Space Shuttle Exhibit And Education Bldg,MOTORIZED DAMPER,2
+4.21.26 Space Shuttle Exhibit And Education Bldg,EXHAUST FAN,1
+4.21.26 Space Shuttle Exhibit And Education Bldg,VENT CAP,1
+4.22.26 29th Street Apartments,UNIT,25
+4.22.26 29th Street Apartments,WALL CAP,22
+4.22.26 29th Street Apartments,AD-SURF SUPPLY,19
+4.22.26 29th Street Apartments,FANS,18
+4.22.26 29th Street Apartments,AD-SURF RETURN,12

@@ -133,6 +133,46 @@ CLASS_ALIASES = {
     'ROOF CAP': 'VENT CAP',
     'DRYER BOX': 'VENT CAP',
     'UNIT': 'CONDENSING UNIT',
+
+    # v10 — additions from the 36 sample-project corpus (April 2026)
+    # Linear plenum slot-count variants → single class
+    'AD-LINEAR PLENUM 1 SLOT': 'AD-LINEAR PLENUM',
+    'AD-LINEAR PLENUM 2 SLOT': 'AD-LINEAR PLENUM',
+    'AD-LINEAR PLENUM 2" SLOT': 'AD-LINEAR PLENUM',
+    'AD-LINEAR PLENUM 1-2" SLOT': 'AD-LINEAR PLENUM',
+    'AD-LINEAR PLENUM 2-1" SLOT': 'AD-LINEAR PLENUM',
+    # Linear slot diffuser variants
+    'AD-LINEAR SLOT DIFFUSER 1 SLOT': 'AD-LINEAR SLOT DIFFUSER',
+    'AD-LINEAR SLOT DIFFUSER 2 SLOT': 'AD-LINEAR SLOT DIFFUSER',
+    'AD-LINEAR SLOT DIFFUSER 2" SLOT': 'AD-LINEAR SLOT DIFFUSER',
+    'AD-LINEAR SLOT DIFFUSER 1-2" SLOT': 'AD-LINEAR SLOT DIFFUSER',
+    'AD-LINEAR SLOT DIFFUSER 2-1" SLOT': 'AD-LINEAR SLOT DIFFUSER',
+    # Fire/smoke damper combo shorthand
+    'FD/FSD': 'FIRE SMOKE DAMPER',
+    # Exhaust fan variants — small TI projects label by location/use
+    'EXHAUST FAN-COMMON AREA': 'EXHAUST FAN',
+    'EXHAUST FAN-JANITOR/RESTROOM': 'EXHAUST FAN',
+    'OUTSIDE AIR FAN-COMMON AREA': 'EXHAUST FAN',
+    'TRANSFER FAN': 'EXHAUST FAN',
+    'KITCHEN EXHAUST FAN': 'EXHAUST FAN',
+    'HVLS FAN': 'EXHAUST FAN',
+    'HVLS CEILING FANS': 'EXHAUST FAN',
+    'FOG FAN': 'EXHAUST FAN',
+    # Damper variants → motorized damper umbrella
+    'OPPOSED BLADE DAMPER': 'MOTORIZED DAMPER',
+    'BACKDRAFT DAMPER': 'MOTORIZED DAMPER',
+    'ELECTRONIC REMOTE DAMPER': 'MOTORIZED DAMPER',
+    'DAMPERS': 'MOTORIZED DAMPER',
+    # VAV variants
+    'VARIABLE VOLUME BOX': 'VAV',
+    # Heater typo / variants
+    'ELECTRIC CABINATE UNIT HEATER': 'HEATER',
+    'ELECTRIC CABINET UNIT HEATER': 'HEATER',
+    # Roof gravity vent looks like a hood
+    'GRAVITY VENTILATOR': 'HOOD',
+    'GOOSENECK': 'VENT CAP',
+    # Air curtain — keep family together
+    'AIR CURTAIN-AMBIENT': 'AIR CURTAIN',
 }
 
 
