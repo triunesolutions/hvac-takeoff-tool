@@ -37,7 +37,9 @@ SKIP_FOLDERS = {"KNAPE FILE"}
 
 
 def safe_name(name: str) -> str:
-    n = re.sub(r"[<>:\"/\\|?*]", "_", name)
+    # Strip Kaggle-forbidden chars too: & # ? * (Kaggle dataset upload rejects these in filenames)
+    n = name.replace("&", "and").replace("#", "")
+    n = re.sub(r"[<>:\"/\\|?*]", "_", n)
     n = re.sub(r"\s+", " ", n).strip()
     return n
 

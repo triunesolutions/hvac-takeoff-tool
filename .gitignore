@@ -39,6 +39,9 @@ yolov8*.pt
 
 # Dataset zip (large)
 yolo_dataset.zip
+yolo_dataset_*.zip
+prepare_v*.log
+zip_v*.log
 
 # Colab benchmark package (large, regeneratable)
 colab_benchmark_pkg/
