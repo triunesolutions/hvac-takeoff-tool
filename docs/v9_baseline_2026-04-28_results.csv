@@ -1,0 +1,35 @@
+project,status,team_total,our_total,our_tagged_pct_of_team,product_recall,product_precision,tag_recall,tag_precision,schedule_tags_found,runtime_s,error
+4.10.26 HVAC Replacement At The Leadership Academy - Lancaster,cached,4,114,0.25,0.25,0.008771929824561403,0.0,0.0,0,0.0,
+4.10.26 Woodbridge HS Modernization - Bldg J & K,timeout,141,0,0.0,,,,,72,600.2,CLI timed out (>10min)
+4.13.26 AALRR - Citrus Tower,no_detections,46,0,0.0,,,,,0,101.0,
+4.13.26 Building Improvement - 640 N Sepulveda Blvd  (Ph3 &  Ph4),cached,131,111,0.0,0.0,0.0,0.0,0.0,26,0.0,
+4.13.26 Erewhon - Pacific Palisades,cached,59,54,0.03389830508474576,0.03389830508474576,0.037037037037037035,0.0,0.0,0,0.0,
+4.13.26 Krispy Kreme #574 - Valencia,cached,39,73,0.02564102564102564,0.02564102564102564,0.0136986301369863,0.0,0.0,0,0.0,
+4.13.26 Rady's Children - Temecula Plaza,cached,123,2,0.0,0.0,0.0,0.0,0.0,0,0.0,
+4.13.26 Skytron Modern Aviation Bldg B TI,cached,53,60,0.018867924528301886,0.018867924528301886,0.016666666666666666,0.0,0.0,0,0.0,
+4.13.26 The Bungalow - San Diego,timeout,73,0,0.0,,,,,67,600.1,CLI timed out (>10min)
+4.14.26 BMO Santee CA De Novo 2026 Reno,cached,40,74,0.2,0.2,0.10810810810810811,0.2,0.10810810810810811,29,0.0,
+4.14.26 Saint Mary's Stadium Clubhouse,cached,63,139,0.12698412698412698,0.12698412698412698,0.05755395683453238,0.0,0.0,0,0.0,
+4.14.26 ScanHealth - Cerritos,timeout,60,0,0.0,,,,,0,600.7,CLI timed out (>10min)
+4.15.26 9020 Aviation,cached,72,40,0.013888888888888888,0.013888888888888888,0.025,0.0,0.0,2,0.0,
+4.15.26 Free People - 6300 W. 3rd Street,cached,42,41,0.023809523809523808,0.023809523809523808,0.024390243902439025,0.0,0.0,1,0.0,
+4.15.26 Ontario Museum Of History & Art - North Gallery,no_detections,43,0,0.0,,,,,0,154.6,
+4.15.26 Sola Salons,cached,100,252,0.33,0.33,0.13095238095238096,0.32,0.12698412698412698,11,0.0,
+4.16.26 Best RV Turlock,timeout,355,0,0.0,,,,,30,600.2,CLI timed out (>10min)
+4.16.26 Harbor Freight - Napa,ok,27,26,0.0,0.0,0.0,0.0,0.0,44,247.7,
+4.16.26 JPMC One Paseo 2nd Floor Expansion,timeout,82,0,0.0,,,,,19,600.3,CLI timed out (>10min)
+4.16.26 OSI Irvine Relocation (OSI Pacifica),timeout,178,0,0.0,,,,,0,600.3,CLI timed out (>10min)
+4.16.26 TVUSD Temecula ES Renovation,no_detections,28,0,0.0,,,,,16,132.8,
+4.16.26 Zion Market - Shell Improvements,ok,89,41,0.0,0.0,0.0,0.0,0.0,0,430.4,
+4.17.26 Alliance Mass Stern Remodel,cached,43,5,0.0,0.0,0.0,0.0,0.0,25,0.0,
+4.17.26 Bradley Terraces - Skilled Nursing Facility,timeout,163,0,0.0,,,,,30,600.2,CLI timed out (>10min)
+4.17.26 LBUSD Stevenson ES,timeout,211,0,0.0,,,,,91,600.2,CLI timed out (>10min)
+4.18.26 Acushnet Bldg 1 TI,timeout,196,0,0.0,,,,,57,600.3,CLI timed out (>10min)
+4.18.26 MBUSD Manhattan Beach MS,timeout,1,0,0.0,,,,,24,600.2,CLI timed out (>10min)
+4.18.26 MBUSD Mira Costa HS,timeout,2,0,0.0,,,,,36,600.3,CLI timed out (>10min)
+4.18.26 UCLA Health Oncology TI,timeout,309,0,0.0,,,,,49,600.2,CLI timed out (>10min)
+4.21.26 677 Imperial Street - TI,cached,59,7,0.0,0.0,0.0,0.0,0.0,8,0.0,
+4.21.26 Anaheim 82,ok,53,44,0.11320754716981132,0.11320754716981132,0.13636363636363635,0.0,0.0,0,222.1,
+4.21.26 Autry Museum Of The American West - Cafe And Kitchen,ok,25,23,0.04,0.04,0.043478260869565216,0.0,0.0,0,143.0,
+4.21.26 Space Shuttle Exhibit And Education Bldg,ok,75,87,0.04,0.04,0.034482758620689655,0.0,0.0,34,585.3,
+4.22.26 29th Street Apartments,timeout,71,0,0.0,,,,,11,2006.7,CLI timed out (>10min)
