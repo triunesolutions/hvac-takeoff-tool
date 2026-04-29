@@ -257,7 +257,7 @@ def score_project(team_rows, our_rows):
 
 # ─── Pipeline runner ───────────────────────────────────────────────────────
 
-def run_one_project(project, out_root, cache=False):
+def run_one_project(project, out_root, cache=False, model=None):
     """Run takeoff_cli.py on the project's plan PDF. Returns dict with status,
     runtime, our_xlsx_path, error."""
     name = project['name']
@@ -275,6 +275,8 @@ def run_one_project(project, out_root, cache=False):
         sys.executable, str(TOOL_DIR / 'takeoff_cli.py'),
         str(pdf), '--output-dir', str(out_dir),
     ]
+    if model:
+        cmd += ['--model', str(model)]
     t0 = time.time()
     try:
         # 10-min timeout per project. UTF-8 for non-ASCII project names.
@@ -430,6 +432,9 @@ def main():
                     help='Skip projects with existing output xlsx')
     ap.add_argument('--limit', type=int, default=None,
                     help='Process at most N projects (debugging)')
+    ap.add_argument('--model', default=None,
+                    help='Path to YOLO model .pt (passes through to takeoff_cli --model). '
+                         'Default: takeoff_cli uses models/hvac_yolov8s_v9.pt.')
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -456,7 +461,7 @@ def main():
         print(f"  plan:  {proj['plan_pdf'].name}")
         print(f"  truth: {proj['truth_xlsx'].name}")
 
-        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache)
+        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache, model=args.model)
         status = run_info['status']
         print(f"  status: {status}  ({run_info['runtime_s']:.0f}s)")
 
