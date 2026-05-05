@@ -1,9 +1,9 @@
 # HVAC AI Takeoff Tool — Engineering Reference
 
-**Last updated:** April 27, 2026
+**Last updated:** May 5, 2026
 **Purpose:** Technical reference for engineers (and future Claude Code sessions) working on the codebase. Read this before making changes.
 
-> **Resuming a Claude Code session?** Read this file end-to-end first. Sections 14–17 cover everything that happened after April 21, 2026: tag-bubble detector (Kaggle training in progress), spatial title-block extractor, current bottlenecks, and the "small files first" rule. The rest of the doc (sections 1–13) is still accurate as of April 21 — minor extensions are noted inline.
+> **Resuming a Claude Code session?** Read this file end-to-end first. Section 19 (added May 5) covers the Label Studio review loop and the 6-project ground-truth dataset feeding v11. Sections 14–17 cover post-April-21 work (tag-bubble detector, title-block extractor). Sections 1–13 are still accurate as of April 21 — minor extensions noted inline.
 
 ---
 
@@ -543,3 +543,92 @@ python benchmark_samples.py --cache                      # skip projects with ex
 **Reference numbers (April 2026 baseline, post bubble-detector + class-aliasing):**
 - Sola Salons: product_recall ≈ 32% (32 / 100 truth caught) — best case for current pipeline shape.
 - 677 Imperial / Alliance / Krispy Kreme: 0% — three different failure modes documented in commit history.
+
+**v10 baseline (April 30, 2026):** median full-recall jumped from 22% → 44% on scored projects after retraining with the expanded sample dataset. v10 lives at `models/hvac_yolov8s_v10.pt` and is the default for new runs.
+
+---
+
+## 19. Label Studio Review Loop & Ground-Truth Dataset (May 5, 2026)
+
+A human-in-the-loop pipeline for verifying every detection v10 makes on a project, capturing corrections as ground truth, and feeding them straight into v11 retraining.
+
+### 19.1 Pipeline
+
+```
+takeoff_cli.py <pdf>                               # produces detections.json sidecar
+        │
+        ▼
+export_to_label_studio.py "<project_dir>"          # renders pages 200 DPI → base64 PNG,
+        │                                          # uploads tasks with v10 boxes as predictions
+        ▼
+Human / Claude-in-Chrome reviews in LS UI          # delete phantoms, relabel wrong-class
+        │                                          # do NOT add new boxes (separate workflow)
+        ▼
+import_from_label_studio.py "<project_dir>"        # IoU-joins truth back against detections.json
+        │                                          # writes ls_ground_truth.json,
+        │                                          # ls_discrepancy_report.csv, ls_summary.txt
+        ▼
+ground_truth/<project>/                            # tracked in git, feeds v11 retraining
+```
+
+### 19.2 Files
+
+| File | Role |
+|---|---|
+| `takeoff_cli.py` | Now also writes `<pdf_stem>_detections.json` next to the Excel (per-page list of `{cls, tag, conf, x1,y1,x2,y2}`). External tools key off this rather than re-running inference. |
+| `export_to_label_studio.py` | Reads detections.json, renders each PDF page at 200 DPI as base64 PNG, builds an LS labeling-config XML with all 38 model+alias classes (HSL palette), uploads tasks. Auto-exchanges the JWT refresh token from `~/.label_studio_token` for a 5-min access token before each API call. |
+| `import_from_label_studio.py` | Pulls verified annotations from LS, IoU≥0.4 joins truth bboxes against v10 detections.json. Emits per-detection status (`accepted` / `relabeled` / `deleted` / `added`), phantom-class counts, and v10→truth class confusion totals. |
+| `batch_prepare_review.sh` | Runs `takeoff_cli.py` then `export_to_label_studio.py` for a list of projects sequentially. |
+| `ground_truth/<project>/` | Tracked output: `ls_summary.txt` (counts), `ls_ground_truth.json` (verified bboxes per page), `ls_discrepancy_report.csv` (per-detection status). |
+
+### 19.3 Auth gotchas
+
+- LS 1.23 only exposes JWT-style refresh tokens as PATs. The legacy `Authorization: Token` header returns 401. Both export/import scripts call `POST /api/token/refresh/` and use `Authorization: Bearer <access>`.
+- Project title is **capped at 50 chars**. Long folder names (BMO, Saint Mary's) require `--ls-project-name "HVAC Review — Short Name"`. The default title is `HVAC Review — <project_dir.name>`. **TODO:** clamp this in `export_to_label_studio.py` so the batch script doesn't fail silently on long names.
+- Run `import_from_label_studio.py` with `python -X utf8` on Windows — the summary's `→` arrow crashes the cp1252 console (files are written first, so a crash here is cosmetic).
+
+### 19.4 First batch results (6 projects, May 5)
+
+| Project | Accepted | Relabeled | Deleted (phantom) | LS proj id |
+|---|---:|---:|---:|---:|
+| Sola Salons | 112 | 72 | 12 | (deleted, archived) |
+| Erewhon - Pacific Palisades | 80 | 0 | 14 | 5 |
+| The Bungalow - San Diego | 88 | 6 | 7 | 6 |
+| Anaheim 82 | 72 | 1 | 2 | 7 |
+| BMO Santee 2026 Reno | 54 | 10 | 0 | 8 |
+| Saint Mary's Stadium | 69 | 0 | 26 | 9 |
+| **Total** | **475** | **89** | **61** | |
+
+### 19.5 Two dominant signals for v11
+
+1. **Legend / schedule / details sheets are the #1 phantom source** (~50 of 61 phantoms across the 6 projects). v10 fires equipment boxes onto every legend symbol row, every schedule table title, and every detail-drawing fitting (pipe hangers, anchor bolts, mounting brackets). A simple sheet-type filter — skip pages whose title block contains `LEGEND`, `SCHEDULE`, `DETAILS`, or `NOTES` — would knock out most phantoms before training even starts. Cheapest win on the table.
+2. **AD-GRD vs AD-T-BAR SUPPLY is the #1 class confusion** (89 relabels; 72 of those on Sola alone). v10 collapses square T-bar lay-in supply diffusers into the generic AD-GRD class. v11 retraining with the corrections in `ground_truth/` should fix this directly — the `class_aliases.py` workaround can probably go away.
+
+### 19.6 Other patterns flagged but not yet acted on
+
+- **Returns vs supplies on identical-looking square diffusers** — supply/return discrimination is being driven by surrounding context (CFM tags, hatch direction) more than the symbol itself. Worth a future spot-check.
+- **FAN vs EXHAUST FAN vs PACKAGED ROOFTOP UNIT** — recurring on roof plans (BMO, Anaheim, Saint Mary's). v10 frequently labels rooftop units as FAN or EXHAUST FAN. Not in our explicit relabel rule yet — extend on the next review pass.
+- **Localization noise** — overlapping duplicate boxes on the same diffuser (Erewhon, Bungalow). Bug 3 (page-level NMS) was already queued; this confirms the need.
+- **AD-GRD on louvers and exhaust risers** — they're real HVAC equipment but the wrong class. Currently kept as AD-GRD because the relabel rule only covers AD-T-BAR SUPPLY.
+
+### 19.7 Workflow per new project
+
+```bash
+# 1. Run takeoff (produces detections.json)
+python takeoff_cli.py "<plan>.pdf" --model models/hvac_yolov8s_v10.pt --output-dir "benchmark_output/<project>"
+
+# 2. Push to Label Studio
+python export_to_label_studio.py "<project>" \
+    [--ls-project-name "HVAC Review — Short Name"]   # only if folder name > ~30 chars
+
+# 3. Review in browser at http://localhost:8080/projects/<id>/data
+#    (Claude in Chrome works well — see prompt template in commit history)
+
+# 4. Pull verified annotations back
+python -X utf8 import_from_label_studio.py "<project>" \
+    [--ls-project-name "HVAC Review — Short Name"]
+
+# 5. Copy ground-truth files into the tracked dir
+cp benchmark_output/<project>/ls_*.{txt,json,csv} ground_truth/<project>/
+git add ground_truth/<project>/ && git commit -m "Add ground truth for <project>"
+```

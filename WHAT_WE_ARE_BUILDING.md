@@ -1,8 +1,10 @@
 # HVAC AI Takeoff Tool — A Plain-English Guide
 
-*For non-technical readers. Last updated: April 27, 2026.*
+*For non-technical readers. Last updated: May 5, 2026.*
 
-> **Latest progress (April 27):** A second AI model — a "tag-bubble detector" — is currently training on Kaggle (~42/60 epochs at last check). When done, it will let us read tag labels (`A1`, `CU-1`) much more reliably. Also added: the CLI now prints project info (Project Name, Project Number, Sheet Title, Firm, Address, Date) at the top of every run.
+> **Latest progress (May 5):** Trained **v10** of the equipment-detection model — median full-recall jumped from 22% → 44% on our scored sample projects. Built a **Label Studio review loop** so we (and Claude in Chrome) can verify every box and feed corrections back as training data. Reviewed 6 projects end-to-end: 475 boxes confirmed correct, 89 mislabels caught (mostly AD-GRD that should be AD-T-BAR SUPPLY), 61 phantom boxes deleted (almost all on legend/schedule/details sheets). Ground truth saved under `ground_truth/` and is now ready to feed v11 retraining.
+>
+> **Earlier (April 27):** Trained a second AI — a "tag-bubble detector" — that lets us read tag labels (`A1`, `CU-1`) more reliably. The CLI also prints project info (Name, Number, Sheet Title, Firm, Address, Date) at the top of every run.
 
 ---
 
@@ -49,7 +51,7 @@ Every time you run the tool on a PDF, you get a folder with:
 
 | Term | What it means in plain English |
 |---|---|
-| **Model** | The "brain" of the system. It's just a file that knows how to spot HVAC equipment. We're on version 9 (v9). |
+| **Model** | The "brain" of the system. It's just a file that knows how to spot HVAC equipment. We're on version 10 (v10), with v11 in prep. |
 | **Training** | Teaching the brain. Takes ~45 minutes on a Kaggle/Colab GPU. |
 | **Inference** | Asking the brain to do a job. Takes ~20 seconds per page. |
 | **Annotation** | When your team draws a box around a diffuser in Bluebeam, that's an annotation. |
@@ -77,7 +79,7 @@ Every time you run the tool on a PDF, you get a folder with:
 
 ---
 
-## Where We Are Right Now (April 21, 2026)
+## Where We Are Right Now (May 5, 2026)
 
 | What | Status |
 |---|---|
@@ -90,7 +92,7 @@ Every time you run the tool on a PDF, you get a folder with:
 | Output Excel in team's format | ✅ Works |
 | Output JSON sidecar for verification | ✅ Works |
 | Has a user interface | ⏳ Not yet |
-| Has review/correction workflow | ⏳ Not yet |
+| Has review/correction workflow | ✅ Label Studio loop — Claude-in-Chrome reviews each box, corrections saved to `ground_truth/` |
 | Has been tested on all common project styles | 🟡 Partial — Flex, Aritzia, United, more pending |
 
 ### The Honest Score
@@ -171,7 +173,7 @@ Three variables drive accuracy:
 
 ## How To Talk About This in One Sentence
 
-> "We're building an AI that reads HVAC blueprints and produces equipment takeoffs in seconds. It currently finds 79% of equipment with 88% precision, extracts 100% of schedule details, and auto-assigns tags on 58-90% of equipment depending on project style."
+> "We're building an AI that reads HVAC blueprints and produces equipment takeoffs in seconds. With v10 we find 4 out of 5 pieces of equipment, ~89% of the boxes are placed correctly, and we now have a human-in-the-loop review tool feeding corrections directly back into the next training run."
 
 ---
 
@@ -203,7 +205,10 @@ We're several engineering months behind on the product side but only a labeled-d
 | `benchmark.py` | Tests how accurate the model is on real projects |
 | `class_aliases.py` | Fixes typos and merges duplicate equipment names in training data |
 | `colab_train.ipynb` | The notebook we run on Google Colab to train (free GPU) |
-| `models/hvac_yolov8s_v9.pt` | The current best model — the "brain" |
+| `models/hvac_yolov8s_v10.pt` | The current best model — the "brain" |
+| `export_to_label_studio.py` | Push a project's detections into Label Studio for human/Chrome review |
+| `import_from_label_studio.py` | Pull verified annotations back, write `ground_truth/` files |
+| `ground_truth/` | Verified bbox + class data per project — feeds v11 retraining |
 | `data to train/projects/` | All ~130 labeled projects (not in the repo, lives on JFL's machine) |
 | `PRD.md` | The full product roadmap |
 | `CLAUDE.md` | Technical context for engineers |
