@@ -1,0 +1,13 @@
+# 4.21.26 Anaheim 82 — Label Studio review summary
+
+Accepted (correct box + class):   72
+Relabeled (right box, wrong class): 1
+Deleted (phantom — no symbol):    2
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+     1  FAN
+     1  AD-SURF SUPPLY
+
+## Class confusions: v10 → truth (top 15)
+     1  AD-GRD                         → AD-T-BAR SUPPLY

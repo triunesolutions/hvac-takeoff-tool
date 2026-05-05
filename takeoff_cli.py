@@ -904,6 +904,28 @@ def main():
     print(f"  Excel takeoff:  {excel_path}")
     write_excel(str(excel_path), detections_per_page, pdf_path.stem, mark_details)
 
+    detections_json_path = out_dir / f"{pdf_path.stem}_detections.json"
+    print(f"  Detections:     {detections_json_path}")
+    det_dump = {
+        'pdf': str(pdf_path),
+        'dpi': DPI,
+        'pages': {
+            str(page_idx): [
+                {
+                    'cls': d['cls'],
+                    'tag': d.get('tag'),
+                    'tag_method': d.get('tag_method'),
+                    'conf': d.get('conf'),
+                    'x1': d['x1'], 'y1': d['y1'], 'x2': d['x2'], 'y2': d['y2'],
+                }
+                for d in dets
+            ]
+            for page_idx, dets in detections_per_page.items()
+        },
+    }
+    with open(detections_json_path, 'w', encoding='utf-8') as f:
+        json.dump(det_dump, f, indent=2, ensure_ascii=False)
+
     print(f"\n{'='*70}")
     print(f"DONE — open {out_dir} to see the results")
     print(f"{'='*70}")

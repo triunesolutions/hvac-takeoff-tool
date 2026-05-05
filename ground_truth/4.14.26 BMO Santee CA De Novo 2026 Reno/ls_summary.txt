@@ -1,0 +1,11 @@
+# 4.14.26 BMO Santee CA De Novo 2026 Reno — Label Studio review summary
+
+Accepted (correct box + class):   54
+Relabeled (right box, wrong class): 10
+Deleted (phantom — no symbol):    0
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+
+## Class confusions: v10 → truth (top 15)
+    10  AD-GRD                         → AD-T-BAR SUPPLY

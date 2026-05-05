@@ -1,0 +1,13 @@
+# 4.13.26 The Bungalow - San Diego — Label Studio review summary
+
+Accepted (correct box + class):   88
+Relabeled (right box, wrong class): 6
+Deleted (phantom — no symbol):    7
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+     6  AD-GRD
+     1  AD-SURF SUPPLY
+
+## Class confusions: v10 → truth (top 15)
+     6  AD-GRD                         → AD-T-BAR SUPPLY

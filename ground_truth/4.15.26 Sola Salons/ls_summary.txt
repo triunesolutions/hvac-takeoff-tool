@@ -1,0 +1,16 @@
+# 4.15.26 Sola Salons — Label Studio review summary
+
+Accepted (correct box + class):   112
+Relabeled (right box, wrong class): 72
+Deleted (phantom — no symbol):    12
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+     8  AD-GRD
+     2  FAN
+     1  VAV
+     1  MOTORIZED DAMPER
+
+## Class confusions: v10 → truth (top 15)
+    71  AD-GRD                         → AD-T-BAR SUPPLY
+     1  MANUAL VOLUME DAMPER           → MOTORIZED DAMPER

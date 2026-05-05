@@ -1,0 +1,18 @@
+# 4.14.26 Saint Mary_s Stadium Clubhouse — Label Studio review summary
+
+Accepted (correct box + class):   69
+Relabeled (right box, wrong class): 0
+Deleted (phantom — no symbol):    26
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+    10  AD-GRD
+     5  FAN
+     3  MANUAL VOLUME DAMPER
+     2  AD-SURF SUPPLY
+     2  VAV
+     2  VENT CAP
+     1  AD-T-BAR SUPPLY
+     1  FIRE SMOKE DAMPER
+
+## Class confusions: v10 → truth (top 15)

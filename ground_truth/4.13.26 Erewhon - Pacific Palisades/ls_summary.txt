@@ -1,0 +1,17 @@
+# 4.13.26 Erewhon - Pacific Palisades — Label Studio review summary
+
+Accepted (correct box + class):   80
+Relabeled (right box, wrong class): 0
+Deleted (phantom — no symbol):    14
+Added (missed detection):         0
+
+## Phantom detections by class (top 15)
+     5  AD-GRD
+     3  EXHAUST FAN
+     2  FAN
+     1  VENT CAP
+     1  LOUVER
+     1  FIRE DAMPER
+     1  MANUAL VOLUME DAMPER
+
+## Class confusions: v10 → truth (top 15)
