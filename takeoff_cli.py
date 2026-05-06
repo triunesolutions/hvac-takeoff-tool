@@ -700,19 +700,60 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+# Sheet-title phrases that mark a page as NOT a floor plan. Across the 6
+# May-5 LS reviews, ~50 / 61 phantom detections came from pages of these
+# types (legends, schedules, details, notes, cover sheets). Skipping them
+# at inference time eliminates the largest single phantom source.
+NON_PLAN_TITLE_MARKERS = [
+    'MECHANICAL LEGEND', 'HVAC LEGEND', 'PLUMBING LEGEND',
+    'LEGEND AND ABBREVIATIONS', 'LEGENDS AND SCHEDULES', 'SCHEDULE AND LEGEND',
+    'GENERAL NOTES', 'MECHANICAL NOTES', 'HVAC NOTES',
+    'MECHANICAL SCHEDULE', 'HVAC SCHEDULE', 'EQUIPMENT SCHEDULE',
+    'AIR DEVICE SCHEDULE', 'DIFFUSER SCHEDULE', 'FAN SCHEDULE',
+    'MECHANICAL DETAILS', 'HVAC DETAILS', 'TYPICAL DETAILS',
+    'PIPING DETAILS', 'INSTALLATION DETAILS',
+    'TITLE SHEET', 'COVER SHEET', 'SHEET INDEX', 'DRAWING INDEX',
+    'SYMBOLS AND ABBREVIATIONS',
+]
+
+PLAN_KEYWORDS = [
+    'MECHANICAL PLAN', 'CEILING PLAN', 'HVAC PLAN',
+    'VENTILATION PLAN', 'FLOOR PLAN', 'ROOF PLAN',
+]
+
+
+def _is_non_plan_sheet(text_upper):
+    """True if page is a legend / schedule / details / notes sheet.
+
+    Match on compound title phrases (e.g., 'MECHANICAL SCHEDULE') rather
+    than bare words so floor plans that happen to mention 'SCHEDULE' or
+    'LEGEND' in a callout aren't filtered out.
+    """
+    return any(m in text_upper for m in NON_PLAN_TITLE_MARKERS)
+
+
 def find_mechanical_pages(pdf_path):
     """
     Heuristic: scan all pages and pick the ones likely to be mechanical floor plans.
-    Looks for HVAC keywords in the page text.
+    Looks for HVAC keywords in the page text, then drops pages whose sheet
+    title marks them as a legend / schedule / details / notes / cover sheet.
     """
     doc = fitz.open(pdf_path)
     total = doc.page_count
     candidate_pages = []
+    skipped_non_plan = []
     for pi in range(total):
         text = doc[pi].get_text().upper()
-        if any(kw in text for kw in ['MECHANICAL PLAN', 'CEILING PLAN', 'HVAC PLAN', 'VENTILATION PLAN', 'FLOOR PLAN']):
-            candidate_pages.append(pi)
+        if not any(kw in text for kw in PLAN_KEYWORDS):
+            continue
+        if _is_non_plan_sheet(text):
+            skipped_non_plan.append(pi + 1)
+            continue
+        candidate_pages.append(pi)
     doc.close()
+
+    if skipped_non_plan:
+        print(f"  Skipping non-plan sheets: pages {skipped_non_plan}")
 
     if not candidate_pages:
         return list(range(total))

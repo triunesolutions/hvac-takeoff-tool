@@ -31,6 +31,7 @@ symbols_auto/
 # Training artifacts (large, regeneratable)
 runs/
 yolo_dataset/
+yolo_dataset_v*/
 *.jpg
 
 # YOLO downloaded weights
