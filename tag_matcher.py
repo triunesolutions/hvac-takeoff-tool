@@ -125,7 +125,7 @@ def detect_bubbles_on_page(img, conf=0.25, tile=320, overlap=80):
     return keep
 
 
-def ocr_bubble_crops(img, bubbles, pad=4, upscale=2.0, conf_threshold=0.2):
+def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
     """OCR the tight crop for each bubble bbox (with small padding + upscale).
     Returns each bubble enriched with {'text', 'ocr_conf'}."""
     if not bubbles:
@@ -164,6 +164,68 @@ def ocr_bubble_crops(img, bubbles, pad=4, upscale=2.0, conf_threshold=0.2):
         b2['text'] = text
         b2['ocr_conf'] = sum(c for _, c in toks) / len(toks)
         out.append(b2)
+    return out
+
+
+def merge_split_bubbles(bubbles, max_dx=60, max_dy=80):
+    """Some drawings draw tags as two stacked bubbles — prefix on top
+    ("CD"), suffix below ("A") — instead of a single "CD-A" bubble. The
+    detector finds both halves; OCR reads each half correctly; matching
+    against schedule tags fails because neither half alone is a valid tag.
+
+    This helper appends synthetic merged bubbles for every pair of OCR'd
+    bubbles whose centers are within a small neighborhood. The synthetic
+    bubble carries the concatenation of the two texts (both orders) at the
+    midpoint, with conf set to the min of the pair so longer-distance pairs
+    are penalized. Real (single-bubble) tags still match first because
+    they're closer to the equipment center.
+
+    The synthetic bubbles never *replace* the originals — they're appended,
+    so single-bubble matches still work. Bubbles whose OCR text is already
+    a multi-character tag (contains a digit or dash) are not paired —
+    pairing only triggers for short alpha prefixes that can't stand alone.
+    """
+    if not bubbles or len(bubbles) < 2:
+        return bubbles
+    out = list(bubbles)
+    for i, b1 in enumerate(bubbles):
+        t1 = (b1.get('text') or '').strip()
+        if not t1 or len(t1) > 4:
+            continue
+        # Pair only when at least one side is alpha-only (the prefix half).
+        # If t1 already contains a digit/dash it's likely a complete tag.
+        t1_alpha = t1.isalpha()
+        for j, b2 in enumerate(bubbles):
+            if i == j:
+                continue
+            t2 = (b2.get('text') or '').strip()
+            if not t2 or len(t2) > 4:
+                continue
+            if not (t1_alpha or t2.isalpha()):
+                continue
+            dx = abs(b1['cx'] - b2['cx'])
+            dy = abs(b1['cy'] - b2['cy'])
+            if dx > max_dx or dy > max_dy:
+                continue
+            if dx == 0 and dy == 0:
+                continue
+            # Generate both concatenation orders so we don't depend on which
+            # half the OCR got first. The match-lookup is normalized so
+            # "CD"+"A" and "CD-A" collapse the same way.
+            for combined in (f"{t1}-{t2}", f"{t2}-{t1}"):
+                merged = {
+                    'x1': min(b1['x1'], b2['x1']),
+                    'y1': min(b1['y1'], b2['y1']),
+                    'x2': max(b1['x2'], b2['x2']),
+                    'y2': max(b1['y2'], b2['y2']),
+                    'cx': (b1['cx'] + b2['cx']) / 2,
+                    'cy': (b1['cy'] + b2['cy']) / 2,
+                    'conf': min(b1.get('conf', 1.0), b2.get('conf', 1.0)),
+                    'text': combined,
+                    'ocr_conf': min(b1.get('ocr_conf', 1.0), b2.get('ocr_conf', 1.0)),
+                    'merged_from': (t1, t2),
+                }
+                out.append(merged)
     return out
 
 

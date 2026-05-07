@@ -85,6 +85,16 @@ YOLO_CLASS_ALIASES = {
         'AD-SURF SUPPLY', 'AD-SURF RETURN',
         'AD-LINEAR SLOT DIFFUSER', 'AD-LINEAR PLENUM',
     ],
+    # v10 outputs these subclasses natively. Schedules typically file
+    # everything under the generic AD-GRD class, so let bubble matching
+    # fall back to AD-GRD's tag pool when the YOLO sub-class has no
+    # direct schedule entries.
+    'AD-T-BAR SUPPLY': 'AD-GRD',
+    'AD-T-BAR RETURN': 'AD-GRD',
+    'AD-SURF SUPPLY': 'AD-GRD',
+    'AD-SURF RETURN': 'AD-GRD',
+    'AD-LINEAR SLOT DIFFUSER': 'AD-GRD',
+    'AD-LINEAR PLENUM': 'AD-GRD',
 }
 
 
@@ -461,7 +471,7 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
 # bubble next to each equipment symbol. OCR the region around each detection
 # and match against the valid tag list for that YOLO class.
 
-def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
+def level2b_bubble_detect(detections, class_to_tags, img, max_distance=350):
     """Use the trained tag-bubble detector to find tight bubble bboxes, OCR
     each one, then assign the closest matching valid tag to each untagged
     detection. Higher precision than the windowed OCR fallback because we
@@ -475,7 +485,8 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
         return detections, {'level': '2b\'', 'method': 'bubble_detect', 'tagged': 0}
 
     try:
-        from tag_matcher import detect_bubbles_on_page, ocr_bubble_crops, _normalize_for_match
+        from tag_matcher import (detect_bubbles_on_page, ocr_bubble_crops,
+                                  merge_split_bubbles, _normalize_for_match)
     except Exception as e:
         return detections, {'level': '2b\'', 'method': 'bubble_detect',
                               'tagged': 0, 'error': str(e)}
@@ -489,6 +500,9 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
     if not bubbles:
         return detections, {'level': '2b\'', 'method': 'bubble_detect',
                               'tagged': 0, 'bubbles_ocr': 0}
+    # Some drawings draw tags as two stacked bubbles ("CD" + "A"); add
+    # synthetic merged bubbles so pair-text like "CD-A" can match the schedule.
+    bubbles_with_merges = merge_split_bubbles(bubbles)
 
     tagged = 0
     reclassified = 0
@@ -514,13 +528,23 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=140):
         dcx, dcy = det.get('cx', 0), det.get('cy', 0)
         best = None
         best_norm = None
+        best_score = float('inf')
         best_dist = float('inf')
-        for b in bubbles:
+        # Score = distance − 80 px per extra normalized char. A specific
+        # tag like "CD-A" (3 chars) beats a generic "CD" (2 chars) match
+        # within ~80 px, but a much-closer "CD" still wins over a far
+        # "CD-A". Tuned to handle Harbor Freight's mixed legend+schedule
+        # tag pool without dropping prefix-only legend tags entirely.
+        for b in bubbles_with_merges:
             n = _normalize_for_match(b.get('text', ''))
             if not n or n not in tag_lookup:
                 continue
             dist = ((b['cx'] - dcx) ** 2 + (b['cy'] - dcy) ** 2) ** 0.5
-            if dist < best_dist and dist <= max_distance:
+            if dist > max_distance:
+                continue
+            score = dist - 80 * len(n)
+            if score < best_score:
+                best_score = score
                 best_dist = dist
                 best = tag_lookup[n]
                 best_norm = n
