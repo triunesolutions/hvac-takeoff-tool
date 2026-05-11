@@ -1,9 +1,30 @@
 # HVAC AI Takeoff Tool — Engineering Reference
 
-**Last updated:** May 5, 2026
+**Last updated:** May 11, 2026
 **Purpose:** Technical reference for engineers (and future Claude Code sessions) working on the codebase. Read this before making changes.
 
 > **Resuming a Claude Code session?** Read this file end-to-end first. Section 19 (added May 5) covers the Label Studio review loop and the 6-project ground-truth dataset feeding v11. Sections 14–17 cover post-April-21 work (tag-bubble detector, title-block extractor). Sections 1–13 are still accurate as of April 21 — minor extensions noted inline.
+
+---
+
+## New-PC bootstrap (2026-05-11)
+
+Laptop was handed off 2026-05-11. To resume on a new machine:
+
+1. `git clone https://github.com/triunesolutions/hvac-takeoff-tool && cd hvac-takeoff-tool`
+2. `pip install PyMuPDF Pillow opencv-python-headless pandas openpyxl easyocr ultralytics pdfplumber`
+3. Models are committed: `models/hvac_yolov8s_v9.pt`, `models/hvac_yolov8s_v10.pt` (production default), `models/hvac_tag_detector_v1.pt`.
+4. `ground_truth.jsonl` (Label Studio review output through 2026-05-05) is committed.
+5. To retrain v11/v12, pull the dataset zips from the release:
+   ```bash
+   gh release download datasets-2026-05-11 --repo triunesolutions/hvac-takeoff-tool
+   # Reassemble v10/v11 (split for the GH 2GB asset cap):
+   cat yolo_dataset_v10.zip.part-* > yolo_dataset_v10.zip   # or 'copy /b ... ' on Windows cmd
+   cat yolo_dataset_v11.zip.part-* > yolo_dataset_v11.zip
+   unzip yolo_dataset_v10.zip   # → yolo_dataset/
+   ```
+6. The team's `SAMPLE FILES 27.04.26/` benchmark corpus is **not** in the repo — re-source from the team Drive if running `benchmark_samples.py`.
+7. **Open follow-ups** (diagnosed 2026-05-11, not implemented): schedule-page OCR fallback for raster schedules (Krispy Kreme); bump `level2b_bubble_detect.max_distance` from 350 → 600; add `TA`/`LD`/`MD` to `TAG_PREFIX_CLASS`; page-level NMS in `takeoff_cli.py`; skip LEGEND/SCHEDULE/DETAILS sheets from YOLO. See session transcript for evidence.
 
 ---
 
