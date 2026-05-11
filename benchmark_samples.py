@@ -116,10 +116,17 @@ def _norm_tag(s):
     return _NORM_TAG_RE.sub('', str(s).upper())
 
 
+try:
+    from class_aliases import normalize_class
+except Exception:
+    def normalize_class(s): return s
+
+
 def _norm_product(s):
     if not s:
         return ''
-    return ' '.join(str(s).upper().split())
+    name = ' '.join(str(s).upper().split())
+    return normalize_class(name)
 
 
 def read_takeoff_xlsx(path):
