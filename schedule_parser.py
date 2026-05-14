@@ -691,22 +691,40 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, ocr_fallback=True,
     schedules, marks, mark_details, variables = extract_schedules_and_marks(pdf_path)
     legend = extract_legend_info(pdf_path)
 
-    # OCR fallback for projects with raster schedule tables. Triggers only when
-    # pdfplumber returned almost nothing — adds tags, never overwrites existing
-    # variables (which carry full property rows).
+    # Layered tag-discovery fallbacks. Run in order of cost:
+    #   1. pdfplumber tables (already ran above) — gives full property rows.
+    #   2. text-layer regex — free; catches tags on plan pages and on PDFs
+    #      where the schedule sheet is a vector graphic (no parseable table).
+    #   3. OCR fallback — only when text layer is empty (raster PDFs).
+    # In every fallback, existing variables (with property rows) are NEVER
+    # overwritten — fallbacks only ADD tags pdfplumber missed.
+    existing_tags = {v['tag'] for v in variables}
+
+    try:
+        from text_layer_tag_extractor import extract_tags_from_text_layer
+        text_extra = extract_tags_from_text_layer(pdf_path)
+        for v in text_extra:
+            if v['tag'] in existing_tags:
+                continue
+            variables.append(v)
+            marks.append(v['tag'])
+            existing_tags.add(v['tag'])
+            mark_details.setdefault(v['tag'], {})
+    except Exception as e:
+        import sys as _sys
+        print(f"[schedule_parser] text-layer extractor failed: {e}",
+              file=_sys.stderr)
+
     if ocr_fallback and len(variables) < ocr_fallback_threshold:
         try:
             from schedule_ocr_fallback import ocr_schedule_fallback
-            existing_tags = {v['tag'] for v in variables}
-            extra = ocr_schedule_fallback(pdf_path)
-            for v in extra:
+            ocr_extra = ocr_schedule_fallback(pdf_path)
+            for v in ocr_extra:
                 if v['tag'] in existing_tags:
                     continue
                 variables.append(v)
                 marks.append(v['tag'])
                 existing_tags.add(v['tag'])
-                # mark_details keyed by tag — keep empty dict so downstream
-                # lookups don't KeyError.
                 mark_details.setdefault(v['tag'], {})
         except Exception as e:
             import sys as _sys

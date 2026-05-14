@@ -132,7 +132,49 @@ projects.** Some plans have no separate schedule; the plan IS the schedule.
 
 ---
 
-## 6. Recommended next step — text-layer-first, OCR-fallback-per-page
+## 6. Text-layer-first extractor (LANDED 2026-05-14)
+
+`text_layer_tag_extractor.py` walks every page, regex-pulls tag-shaped tokens
+from `page.get_text()`, filters out sheet refs (`M101`), code refs
+(`CMC-303`, `CEC-150`, `T-24`), refrigerants, and single-letter+3-digit room
+labels (`A101`). Returns TagVariable dicts (same shape as pdfplumber output).
+
+Wired into `parse_pdf_schedules()` as an **augment** layered between
+pdfplumber and OCR fallback. Existing variables (with property rows) are
+never overwritten — text-layer only ADDS tags pdfplumber missed.
+
+**Combined-parser comparison (post-text-layer):**
+
+| Project | pdfplumber alone | + text_layer | Delta | Total time |
+|---|---:|---:|---:|---:|
+| Yucaipa A | 0 | **122** | +122 | 17 s |
+| Aritzia | 36 | **64** | +28 | 90 s |
+| Capitol Complex | 118 | **153** | +35 | 42 s |
+| LUS Admin | 290 | **418** | +128 | 87 s |
+| Flex 200 | 22 | **28** | +6 | 15 s |
+| Larchmont | 0 | 0 | 0 (pure raster) | 44 s |
+
+5/6 projects gain meaningfully from the text-layer path. Larchmont is the
+only one still blocked — pure raster PDF, needs the OCR fallback (also
+wired now, just behind a `len(variables) < 3` gate so it never duplicates).
+
+### Discovery: Yucaipa A doesn't have a schedule sheet at all
+
+`page.get_text()` reveals the real layout: tags are scattered directly on
+the floor plans, not collected into a schedule table.
+
+| Page | Text-layer hits |
+|---|---|
+| p4 floor plan | `DBF-01`, `EF-01`, `IDU-01A`..`IDU-10D` (~40 tags) |
+| p5 floor plan | `EF-01`, `IDU-11A`..`IDU-20D` (~40 tags) |
+| p6 floor plan | `EF-01`, `IDU-21A`..`IDU-30D` (~40 tags) |
+| p7 roof plan | `ODU-01`..`ODU-29` |
+
+The "schedule-only ground truth" assumption fails for projects like this.
+Some plans have no separate schedule; the plan IS the schedule. Text-layer
+extraction handles this case for free.
+
+## 7. Recommended next step — sliding-window OCR scan on plan pages
 
 ```python
 for each page:
@@ -159,7 +201,7 @@ Filter universe to remove obvious non-tags:
 
 ---
 
-## 7. Files added on this branch
+## 8. Files added on this branch
 
 | File | Role |
 |---|---|
@@ -168,6 +210,7 @@ Filter universe to remove obvious non-tags:
 | `dump_bubbles.py` | Bypass strict mode, dump every OCR'd bubble to CSV. Diagnostic for projects where strict mode dropped everything. |
 | `schedule_ocr_fallback.py` | RapidOCR-based fallback when pdfplumber returns <3 variables. Wired into `parse_pdf_schedules()` via the `ocr_fallback=True` kwarg. |
 | `ocr_engine_benchmark.py` | A/B harness for OCR engines. Run with `--engines easy,paddle` to compare on any single page. |
+| `text_layer_tag_extractor.py` | Text-layer-first tag scanner. `page.get_text()` regex + filters. Free, instant, zero OCR cost. Now layered into `parse_pdf_schedules()`. |
 | `BUBBLE_PIPELINE.md` | This file. |
 
 Modified:
