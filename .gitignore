@@ -67,3 +67,9 @@ tag_bubble_labels.log
 tag_bubble_sample*.jsonl
 yolo_zip.log
 zip.log
+
+# Bubble-pipeline branch — smoke-test artifacts
+_smoke_*/
+_*.log
+_*.txt
+*.err

@@ -667,12 +667,18 @@ def get_mark_type(mark):
     return m.group(1) if m else mark.split("-")[0] if "-" in mark else mark
 
 
-def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
+def parse_pdf_schedules(pdf_path, exclude_prefixes=None, ocr_fallback=True,
+                         ocr_fallback_threshold=3):
     """
     Main entry point.
 
     exclude_prefixes: set of equipment type prefixes to exclude (default: none).
     Pass exclude_prefixes=set() to get ALL tags.
+
+    ocr_fallback: when True (default), if pdfplumber recovers fewer than
+    `ocr_fallback_threshold` variables, render schedule pages and OCR them to
+    recover tags from raster schedule tables. Adds ~10-30 s per project.
+    Disable by passing ocr_fallback=False (useful for fast iteration).
 
     Returns (schedules, marks, mark_details, legend, summary, variables).
     `variables` is a list of TagVariable dicts — one per (tag, source_row) pair —
@@ -684,6 +690,27 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
 
     schedules, marks, mark_details, variables = extract_schedules_and_marks(pdf_path)
     legend = extract_legend_info(pdf_path)
+
+    # OCR fallback for projects with raster schedule tables. Triggers only when
+    # pdfplumber returned almost nothing — adds tags, never overwrites existing
+    # variables (which carry full property rows).
+    if ocr_fallback and len(variables) < ocr_fallback_threshold:
+        try:
+            from schedule_ocr_fallback import ocr_schedule_fallback
+            existing_tags = {v['tag'] for v in variables}
+            extra = ocr_schedule_fallback(pdf_path)
+            for v in extra:
+                if v['tag'] in existing_tags:
+                    continue
+                variables.append(v)
+                marks.append(v['tag'])
+                existing_tags.add(v['tag'])
+                # mark_details keyed by tag — keep empty dict so downstream
+                # lookups don't KeyError.
+                mark_details.setdefault(v['tag'], {})
+        except Exception as e:
+            import sys as _sys
+            print(f"[schedule_parser] OCR fallback failed: {e}", file=_sys.stderr)
 
     # Filter out excluded equipment types (e.g., VAV boxes)
     if exclude_prefixes:
