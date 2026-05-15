@@ -602,8 +602,8 @@ def main():
     print()
     print(f"  {'Equipment Type':<30} {'Tag':<15} {'Count':>8}")
     print(f"  {'-'*30} {'-'*15} {'-'*8}")
-    for (cls, tag), cnt in sorted(by_cls_tag.items()):
-        print(f"  {cls[:29]:<30} {tag:<15} {cnt:>8}")
+    for (cls, tag), cnt in sorted(by_cls_tag.items(), key=lambda kv: (str(kv[0][0] or ''), str(kv[0][1] or ''))):
+        print(f"  {(cls or 'UNKNOWN')[:29]:<30} {(tag or '?'):<15} {cnt:>8}")
     print()
 
     annotated_pdf_path = out_dir / f"{pdf_path.stem}_annotated.pdf"

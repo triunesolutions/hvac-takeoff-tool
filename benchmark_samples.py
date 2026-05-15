@@ -42,25 +42,27 @@ MAX_PLAN_MB = 20.0
 
 # ─── Project discovery ─────────────────────────────────────────────────────
 
-def discover_projects(root):
+def discover_projects(root, layout='sample_files'):
     """Walk root, return list of dicts: {name, plan_pdf, truth_xlsx}.
 
-    Skips KNAPE FILE/ (different structure) and any project missing either
-    a Plans_Specs/*.pdf or a Completed Takeoff/*.xlsx.
+    layout='sample_files' (original): expects <root>/<project>/Plans_Specs/*.pdf
+        and <root>/<project>/Completed Takeoff/*.xlsx
+    layout='projects': expects <root>/<project>/raw/*.pdf
+        and <root>/<project>/excel/*.xlsx (the data-to-train layout).
     """
     projects = []
     for d in sorted(root.iterdir()):
         if not d.is_dir() or d.name == 'KNAPE FILE':
             continue
-        plans_dir = d / 'Plans_Specs'
-        truth_dir = d / 'Completed Takeoff'
+        if layout == 'projects':
+            plans_dir = d / 'raw'
+            truth_dir = d / 'excel'
+        else:
+            plans_dir = d / 'Plans_Specs'
+            truth_dir = d / 'Completed Takeoff'
         if not plans_dir.is_dir() or not truth_dir.is_dir():
             continue
-
-        # Choose the largest plan PDF under MAX_PLAN_MB (skip tiny RCP excerpts;
-        # skip anything bigger than the small-file size band).
         plan_pdf = _pick_plan_pdf(plans_dir)
-        # Choose the takeoff xlsx (not Schedule_*).
         truth_xlsx = _pick_truth_xlsx(truth_dir)
         if not plan_pdf or not truth_xlsx:
             continue
@@ -433,6 +435,10 @@ def write_summary_md(results, path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default=str(SAMPLE_ROOT))
+    ap.add_argument('--layout', choices=['sample_files', 'projects'],
+                    default='sample_files',
+                    help="Project tree layout. 'sample_files' = Plans_Specs/+Completed Takeoff/. "
+                         "'projects' = raw/+excel/ (data-to-train layout).")
     ap.add_argument('--projects', nargs='*', default=None,
                     help='Substring filter — only projects whose name contains any')
     ap.add_argument('--cache', action='store_true',
@@ -447,7 +453,7 @@ def main():
     root = Path(args.root)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    projects = discover_projects(root)
+    projects = discover_projects(root, layout=args.layout)
     if args.projects:
         wanted = [w.lower() for w in args.projects]
         projects = [p for p in projects if any(w in p['name'].lower() for w in wanted)]
