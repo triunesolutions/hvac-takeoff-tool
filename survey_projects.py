@@ -16,14 +16,21 @@ from schedule_parser import parse_pdf_schedules
 
 
 def find_main_pdf(project_dir):
-    raw = project_dir / 'raw'
-    if not raw.exists():
-        return None
-    pdfs = [p for p in raw.glob('*.pdf') if 'takeoff' not in p.stem.lower()
-            and 'working' not in p.stem.lower()]
-    if not pdfs:
-        return None
-    return max(pdfs, key=lambda p: p.stat().st_size)
+    # Prefer raw/, but fall back to labeled/ for projects whose raw/ wasn't
+    # captured (Burlington, Hope Chapel, Perch, Optum, Planet Fitness, Vista
+    # Murrieta). Labeled PDFs are the same plan content with team annotations.
+    for sub in ('raw', 'labeled'):
+        d = project_dir / sub
+        if not d.exists():
+            continue
+        pdfs = [p for p in d.glob('*.pdf') if 'working' not in p.stem.lower()]
+        # Skip pure takeoff PDFs only if there's a non-takeoff alternative
+        non_takeoff = [p for p in pdfs if 'takeoff' not in p.stem.lower()]
+        if non_takeoff:
+            return max(non_takeoff, key=lambda p: p.stat().st_size)
+        if pdfs:
+            return max(pdfs, key=lambda p: p.stat().st_size)
+    return None
 
 
 def survey(pdf_path):

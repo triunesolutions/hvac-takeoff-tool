@@ -14,12 +14,20 @@ Does:
 This is more accurate than unrestricted text extraction because it only
 looks for tags we KNOW exist in the project's schedule.
 """
+import os
 import re
 import numpy as np
 from collections import defaultdict
 
 
+# OCR engine for tight bubble crops. RapidOCR (PaddleOCR PP-OCR models via
+# ONNXRuntime) outperformed EasyOCR on schedule pages and on small tag bubbles
+# during the May 2026 A/B test. Override with HVAC_BUBBLE_OCR=easyocr if you
+# want to compare on a specific project.
+BUBBLE_OCR_ENGINE = os.environ.get('HVAC_BUBBLE_OCR', 'rapidocr').lower()
+
 _easyocr_reader = None
+_rapidocr_reader = None
 
 
 def get_ocr_reader():
@@ -29,6 +37,15 @@ def get_ocr_reader():
         import easyocr
         _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
     return _easyocr_reader
+
+
+def get_rapidocr_reader():
+    """Lazy-init RapidOCR (PaddleOCR PP-OCR via ONNX, no paddlepaddle dep)."""
+    global _rapidocr_reader
+    if _rapidocr_reader is None:
+        from rapidocr_onnxruntime import RapidOCR
+        _rapidocr_reader = RapidOCR()
+    return _rapidocr_reader
 
 
 def _normalize_for_match(s):
@@ -125,13 +142,73 @@ def detect_bubbles_on_page(img, conf=0.25, tile=320, overlap=80):
     return keep
 
 
-def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
+_TAG_CHAR_RE = re.compile(r'[A-Za-z0-9\-]+')
+
+
+def _ocr_crop_easyocr(crop, conf_threshold):
+    reader = get_ocr_reader()
+    try:
+        results = reader.readtext(
+            crop,
+            allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
+            text_threshold=0.4, low_text=0.2,
+        )
+    except Exception:
+        return None
+    toks = [(t, c) for _, t, c in results if c >= conf_threshold]
+    if not toks:
+        return None
+    text = ''.join(t for t, _ in toks).strip()
+    if not text:
+        return None
+    return text, sum(c for _, c in toks) / len(toks)
+
+
+def _ocr_crop_rapidocr(crop, conf_threshold):
+    reader = get_rapidocr_reader()
+    try:
+        res, _elapsed = reader(crop)
+    except Exception:
+        return None
+    if not res:
+        return None
+    toks = []
+    for entry in res:
+        try:
+            text, conf = str(entry[1]), float(entry[2])
+        except Exception:
+            continue
+        if conf < conf_threshold:
+            continue
+        # Strip everything that isn't a tag char (RapidOCR can pull in stray
+        # bubble borders as punctuation).
+        for m in _TAG_CHAR_RE.findall(text):
+            if m:
+                toks.append((m, conf))
+    if not toks:
+        return None
+    text = ''.join(t for t, _ in toks).strip()
+    if not text:
+        return None
+    return text, sum(c for _, c in toks) / len(toks)
+
+
+def ocr_bubble_crops(img, bubbles, pad=50, upscale=2.0, conf_threshold=0.2,
+                      engine=None):
     """OCR the tight crop for each bubble bbox (with small padding + upscale).
-    Returns each bubble enriched with {'text', 'ocr_conf'}."""
+    Returns each bubble enriched with {'text', 'ocr_conf'}.
+
+    Engine is selected by the HVAC_BUBBLE_OCR env var (default 'rapidocr').
+    Pass engine='easyocr' to force the legacy path for comparison runs.
+    """
     if not bubbles:
         return bubbles
     import cv2
-    reader = get_ocr_reader()
+    engine = (engine or BUBBLE_OCR_ENGINE).lower()
+    if engine == 'easyocr':
+        ocr_fn = _ocr_crop_easyocr
+    else:
+        ocr_fn = _ocr_crop_rapidocr
     out = []
     h, w = img.shape[:2]
     for b in bubbles:
@@ -145,24 +222,13 @@ def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
         if upscale != 1.0:
             crop = cv2.resize(crop, None, fx=upscale, fy=upscale,
                               interpolation=cv2.INTER_CUBIC)
-        try:
-            results = reader.readtext(
-                crop,
-                allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
-                text_threshold=0.4, low_text=0.2,
-            )
-        except Exception:
+        result = ocr_fn(crop, conf_threshold)
+        if not result:
             continue
-        # Concatenate words in this single bubble (handles "CU-1" split as "CU" "-" "1")
-        toks = [(t, c) for _, t, c in results if c >= conf_threshold]
-        if not toks:
-            continue
-        text = ''.join(t for t, _ in toks).strip()
-        if not text:
-            continue
+        text, avg_conf = result
         b2 = dict(b)
         b2['text'] = text
-        b2['ocr_conf'] = sum(c for _, c in toks) / len(toks)
+        b2['ocr_conf'] = avg_conf
         out.append(b2)
     return out
 

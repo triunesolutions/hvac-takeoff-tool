@@ -143,13 +143,31 @@ NON_PLAN_TITLE_MARKERS = [
     'AIR DEVICE SCHEDULE', 'DIFFUSER SCHEDULE', 'FAN SCHEDULE',
     'MECHANICAL DETAILS', 'HVAC DETAILS', 'TYPICAL DETAILS',
     'PIPING DETAILS', 'INSTALLATION DETAILS',
+    'MECHANICAL SPECIFICATIONS', 'HVAC SPECIFICATIONS',
     'TITLE SHEET', 'COVER SHEET', 'SHEET INDEX', 'DRAWING INDEX',
     'SYMBOLS AND ABBREVIATIONS',
+]
+
+# Plan sheets that LOOK like takeoff pages but aren't — counting them would
+# double-count piping runs or take off equipment that is being removed.
+# Demolition plan: existing equipment to be removed (don't count).
+# Piping plan: shows refrigerant/water piping runs, not equipment.
+# Zoning plan: shows VAV zone boundaries conceptually, not equipment locations.
+NON_TAKEOFF_PLAN_MARKERS = [
+    'DEMOLITION PLAN', 'DEMO PLAN',
+    'PIPING PLAN',
+    'ZONING PLAN',
 ]
 PLAN_KEYWORDS = [
     'MECHANICAL PLAN', 'CEILING PLAN', 'HVAC PLAN',
     'VENTILATION PLAN', 'FLOOR PLAN', 'ROOF PLAN',
+    'OVERALL PLAN', 'ENLARGED PLAN', 'PARTIAL PLAN',
 ]
+
+# Pages with text length below this AND no non-plan markers are treated as
+# CAD/raster plan pages (Flex projects: real plan pages have only 900-1700
+# chars of room labels + bubble tags; legend/notes/schedule pages have 4500+).
+SPARSE_TEXT_THRESHOLD = 2500
 
 
 def _is_non_plan_sheet(text_upper):
@@ -160,18 +178,34 @@ def find_mechanical_pages(pdf_path):
     doc = fitz.open(pdf_path)
     total = doc.page_count
     candidates = []
-    skipped = []
+    skipped_non_plan = []
+    skipped_non_takeoff = []
+    skipped_no_signal = []
     for pi in range(total):
         text = doc[pi].get_text().upper()
-        if not any(kw in text for kw in PLAN_KEYWORDS):
-            continue
         if _is_non_plan_sheet(text):
-            skipped.append(pi + 1)
+            skipped_non_plan.append(pi + 1)
             continue
-        candidates.append(pi)
+        if any(m in text for m in NON_TAKEOFF_PLAN_MARKERS):
+            skipped_non_takeoff.append(pi + 1)
+            continue
+        if any(kw in text for kw in PLAN_KEYWORDS):
+            candidates.append(pi)
+            continue
+        # CAD/raster plan pages often have sparse text layers (room labels +
+        # bubble tags only) with no explicit "...PLAN" string in the title
+        # block. Include them if they survived the non-plan gate.
+        if len(text) < SPARSE_TEXT_THRESHOLD:
+            candidates.append(pi)
+            continue
+        skipped_no_signal.append(pi + 1)
     doc.close()
-    if skipped:
-        print(f"  Skipping non-plan sheets: pages {skipped}")
+    if skipped_non_plan:
+        print(f"  Skipping non-plan sheets: pages {skipped_non_plan}")
+    if skipped_non_takeoff:
+        print(f"  Skipping non-takeoff plans (demo/piping/zoning): pages {skipped_non_takeoff}")
+    if skipped_no_signal:
+        print(f"  Skipping text-heavy pages with no plan signal: {skipped_no_signal}")
     if not candidates:
         return list(range(total))
     return candidates
@@ -388,6 +422,13 @@ def main():
     parser.add_argument('--pages', type=int, nargs='+')
     parser.add_argument('--schedule-only', action='store_true')
     parser.add_argument('--verify', action='store_true')
+    parser.add_argument(
+        '--scanner', choices=['bubble', 'text', 'auto'], default='auto',
+        help=("Detection backend. 'bubble' = YOLO tag-bubble detector + OCR "
+              "(legacy). 'text' = text-layer-first scanner + OCR fallback "
+              "(positioned tag finder, no YOLO). 'auto' (default) = text "
+              "scanner, fall back to bubble detector if scanner yields 0."),
+    )
     args = parser.parse_args()
 
     pdf_path = Path(args.pdf).resolve()
@@ -453,63 +494,91 @@ def main():
             pages = list(range(total_pages))
     print(f"Processing {len(pages)} page(s) of {total_pages} total\n")
 
-    # Pre-load bubble model (lazy in tag_matcher, but be loud about it)
-    print("Loading bubble detector...")
-    from tag_matcher import get_bubble_model
-    if get_bubble_model(args.bubble_model) is None:
-        print(f"ERROR: failed to load bubble model from {args.bubble_model}")
-        sys.exit(1)
-    print("  Loaded.\n")
+    use_scanner = args.scanner in ('text', 'auto')
+    use_bubble = args.scanner in ('bubble', 'auto')
 
+    if use_bubble:
+        print("Loading bubble detector...")
+        from tag_matcher import get_bubble_model
+        if get_bubble_model(args.bubble_model) is None:
+            print(f"ERROR: failed to load bubble model from {args.bubble_model}")
+            sys.exit(1)
+        print("  Loaded.\n")
+
+    valid_tags = sorted(set(tag_lookup.values()))
     bubbles_per_page = {}
     t_start = time.time()
     for pi in pages:
         t0 = time.time()
-        print(f"  Page {pi+1}: rendering...", end=' ', flush=True)
-        try:
-            img, _rot, _mw, _mh = render_page(pdf_path, pi)
-        except Exception as e:
-            print(f"FAILED: {e}")
-            continue
-        print("detecting...", end=' ', flush=True)
-        bubbles = detect_bubbles_on_page(img, conf=args.conf)
-        if not bubbles:
-            print("0 bubbles")
-            continue
-        print(f"{len(bubbles)} bubbles, OCR...", end=' ', flush=True)
-        bubbles = ocr_bubble_crops(img, bubbles)
-        if not bubbles:
-            print("none readable")
-            continue
-        bubbles_with_merges = merge_split_bubbles(bubbles)
 
-        # Resolve each bubble to (tag, class). For merged-pair candidates we
-        # prefer them when the single-half text would otherwise miss; but if
-        # both a single bubble and its merged pair resolve, count only the
-        # single (avoid double-counting). De-dupe by bubble id afterwards.
-        resolved = []
-        for b in bubbles_with_merges:
-            tag, cls = resolve_bubble_text(b.get('text', ''), tag_lookup, class_lookup)
-            if not tag:
-                continue
-            b2 = dict(b)
-            b2['tag'] = tag
-            b2['cls'] = cls
-            resolved.append(b2)
-
-        # Dedupe synthetic merged bubbles whose center overlaps an already-
-        # resolved real bubble at the same spot.
         final = []
-        for b in resolved:
-            if b.get('merged_from'):
-                if any(abs(b['cx'] - f['cx']) < 30 and abs(b['cy'] - f['cy']) < 30
-                       and not f.get('merged_from') for f in final):
+        scanner_used = False
+        if use_scanner and valid_tags:
+            print(f"  Page {pi+1}: text-scan...", end=' ', flush=True)
+            try:
+                from sliding_ocr import scan_page_for_tags
+                hits = scan_page_for_tags(str(pdf_path), pi, valid_tags,
+                                          dpi=200, ocr_fallback=False)
+            except Exception as e:
+                print(f"scanner failed: {e}")
+                hits = []
+            for h in hits:
+                norm = _normalize_for_match(h['tag'])
+                cls = class_lookup.get(norm) or _class_from_prefix(_split_prefix(h['tag'])[0])
+                final.append({
+                    'x1': h['x1'], 'y1': h['y1'],
+                    'x2': h['x2'], 'y2': h['y2'],
+                    'cx': h['cx'], 'cy': h['cy'],
+                    'conf': h['conf'],
+                    'text': h.get('raw_text', h['tag']),
+                    'ocr_conf': h['conf'],
+                    'tag': h['tag'],
+                    'cls': cls,
+                    'source': h.get('source', 'text_scan'),
+                })
+            scanner_used = True
+            print(f"{len(final)} hit(s)", end=' ', flush=True)
+
+        # Fall back to bubble detector if scanner found nothing (auto mode)
+        if not final and use_bubble:
+            print("→ bubble detect...", end=' ', flush=True)
+            try:
+                img, _rot, _mw, _mh = render_page(pdf_path, pi)
+            except Exception as e:
+                print(f"render FAILED: {e}")
+                continue
+            bubbles = detect_bubbles_on_page(img, conf=args.conf)
+            if not bubbles:
+                print("0 bubbles")
+                continue
+            print(f"{len(bubbles)} bubbles, OCR...", end=' ', flush=True)
+            bubbles = ocr_bubble_crops(img, bubbles)
+            if not bubbles:
+                print("none readable")
+                continue
+            bubbles_with_merges = merge_split_bubbles(bubbles)
+            resolved = []
+            for b in bubbles_with_merges:
+                tag, cls = resolve_bubble_text(b.get('text', ''), tag_lookup, class_lookup)
+                if not tag:
                     continue
-            final.append(b)
+                b2 = dict(b)
+                b2['tag'] = tag
+                b2['cls'] = cls
+                resolved.append(b2)
+            for b in resolved:
+                if b.get('merged_from'):
+                    if any(abs(b['cx'] - f['cx']) < 30 and abs(b['cy'] - f['cy']) < 30
+                           and not f.get('merged_from') for f in final):
+                        continue
+                final.append(b)
 
         bubbles_per_page[pi] = final
         elapsed = time.time() - t0
-        print(f"{len(final)} resolved ({elapsed:.0f}s)")
+        suffix = ""
+        if scanner_used and not final and use_bubble:
+            suffix = " (after bubble fallback)"
+        print(f"→ {len(final)} resolved{suffix} ({elapsed:.0f}s)")
 
     total_elapsed = time.time() - t_start
     print(f"\nDetection complete in {total_elapsed:.0f}s")
