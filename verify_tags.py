@@ -124,17 +124,23 @@ let state = { current: null, total: 0, done: 0 };
 async function fetchNext() {
   const r = await fetch('/api/next');
   const d = await r.json();
-  if (d.done) {
+  if (d.finished === true) {
+    const skipNote = d.skipped_count > 0
+      ? ' (' + d.skipped_count + ' skipped — restart to revisit)' : '';
     document.getElementById('card').innerHTML =
-      '<div class="done">All entries verified — '+d.total+' decisions saved to '+d.output+'.</div>';
+      '<div class="done">No more entries to verify. ' +
+      d.verified_count + ' of ' + d.total + ' actually decided' + skipNote +
+      '. Output: ' + d.output + '</div>';
     document.getElementById('progress').textContent = '';
     return;
   }
   state.current = d.entry;
   state.total = d.total;
-  state.done = d.done;
+  state.done = d.verified_count;
   document.getElementById('progress').innerHTML =
-    '<b>'+d.done+'</b> of '+d.total+' verified ('+(100*d.done/d.total).toFixed(1)+'%)';
+    '<b>' + d.verified_count + '</b> of ' + d.total + ' verified (' +
+    (100*d.verified_count/d.total).toFixed(1) + '%) · ' +
+    d.remaining + ' remaining';
   document.getElementById('cropImg').src = '/img/' + encodeURIComponent(d.entry.img);
   document.getElementById('project').textContent = d.entry.img.split('/').slice(-2,-1)[0];
   document.getElementById('imgPath').textContent = d.entry.img;
@@ -147,15 +153,21 @@ async function fetchNext() {
   document.getElementById('correctInput').blur();
 }
 
+let busy = false;  // prevent double-submit from Enter + button click
 async function decide(decision, reviewer_tag) {
-  if (!state.current) return;
+  if (!state.current || busy) return;
+  busy = true;
   const payload = { img: state.current.img, decision: decision };
   if (reviewer_tag) payload.reviewer_tag = reviewer_tag;
-  await fetch('/api/decide', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  });
-  fetchNext();
+  try {
+    await fetch('/api/decide', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    await fetchNext();
+  } finally {
+    busy = false;
+  }
 }
 
 function submitCorrection() {
@@ -256,15 +268,34 @@ def serve_image(rel):
 def api_next():
     entries = CONFIG['entries']
     verified = CONFIG['verified']
+    skipped = CONFIG.get('skipped_this_session', set())
     total = len(entries)
     done = len(verified)
+    skipped_n = len(skipped)
+    remaining = total - done - skipped_n
+    print(f"[api_next] total={total} done={done} skipped_session={skipped_n} remaining={remaining}",
+          flush=True)
     for entry in entries:
         if entry['img'] in verified:
             continue
-        if entry['img'] in CONFIG.get('skipped_this_session', set()):
+        if entry['img'] in skipped:
             continue
-        return jsonify({'entry': entry, 'total': total, 'done': done, 'done_flag': False, 'output': str(CONFIG['output_path'])})
-    return jsonify({'done': True, 'total': total, 'output': str(CONFIG['output_path'])})
+        return jsonify({
+            'finished': False,
+            'entry': entry,
+            'total': total,
+            'verified_count': done,
+            'skipped_count': skipped_n,
+            'remaining': remaining,
+            'output': str(CONFIG['output_path']),
+        })
+    return jsonify({
+        'finished': True,
+        'total': total,
+        'verified_count': done,
+        'skipped_count': skipped_n,
+        'output': str(CONFIG['output_path']),
+    })
 
 
 @app.route('/api/decide', methods=['POST'])
@@ -272,11 +303,14 @@ def api_decide():
     data = request.get_json(force=True)
     img = data.get('img')
     decision = data.get('decision')
+    print(f"[api_decide] img={img!r} decision={decision!r}", flush=True)
     if not img or decision not in ('confirm', 'no_tag', 'correct'):
+        print(f"  → 400 bad request", flush=True)
         return jsonify({'error': 'bad request'}), 400
 
     entry = next((e for e in CONFIG['entries'] if e['img'] == img), None)
     if entry is None:
+        print(f"  → 404 unknown img (entries has {len(CONFIG['entries'])} items)", flush=True)
         return jsonify({'error': 'unknown img'}), 404
 
     reviewer_tag = data.get('reviewer_tag')
