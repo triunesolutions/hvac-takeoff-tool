@@ -42,18 +42,22 @@ MAX_PLAN_MB = 20.0
 
 # ─── Project discovery ─────────────────────────────────────────────────────
 
-def discover_projects(root):
+def discover_projects(root, layout='sample_files'):
     """Walk root, return list of dicts: {name, plan_pdf, truth_xlsx}.
 
-    Skips KNAPE FILE/ (different structure) and any project missing either
-    a Plans_Specs/*.pdf or a Completed Takeoff/*.xlsx.
+    layout='sample_files': <root>/<project>/Plans_Specs/*.pdf + Completed Takeoff/*.xlsx
+    layout='projects':     <root>/<project>/raw/*.pdf + excel/*.xlsx
     """
     projects = []
     for d in sorted(root.iterdir()):
         if not d.is_dir() or d.name == 'KNAPE FILE':
             continue
-        plans_dir = d / 'Plans_Specs'
-        truth_dir = d / 'Completed Takeoff'
+        if layout == 'projects':
+            plans_dir = d / 'raw'
+            truth_dir = d / 'excel'
+        else:
+            plans_dir = d / 'Plans_Specs'
+            truth_dir = d / 'Completed Takeoff'
         if not plans_dir.is_dir() or not truth_dir.is_dir():
             continue
 
@@ -442,12 +446,20 @@ def main():
     ap.add_argument('--model', default=None,
                     help='Path to YOLO model .pt (passes through to takeoff_cli --model). '
                          'Default: takeoff_cli uses models/hvac_yolov8s_v9.pt.')
+    ap.add_argument('--layout', choices=['sample_files', 'projects'], default='sample_files',
+                    help="Project tree layout. 'sample_files' = Plans_Specs/+Completed Takeoff/. "
+                         "'projects' = raw/+excel/.")
+    ap.add_argument('--out', default=None,
+                    help='Override output dir (default: benchmark_output/).')
     args = ap.parse_args()
 
+    global OUT_ROOT
+    if args.out:
+        OUT_ROOT = Path(args.out)
     root = Path(args.root)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    projects = discover_projects(root)
+    projects = discover_projects(root, layout=args.layout)
     if args.projects:
         wanted = [w.lower() for w in args.projects]
         projects = [p for p in projects if any(w in p['name'].lower() for w in wanted)]
