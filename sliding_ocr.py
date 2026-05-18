@@ -282,37 +282,51 @@ def _dedup_hits(hits, dedup_dist):
 
 
 def scan_page_for_tags(pdf_path, page_index, valid_tags, dpi=200,
-                       ocr_fallback=True, verbose=False):
+                       use_text_layer=True, use_ocr=True, verbose=False,
+                       merge_dist=30):
     """Find every occurrence of every schedule tag on a single page.
 
-    Text-layer-first: if the page has a usable text layer, use it (zero-cost,
-    exact). Falls back to sliding-window RapidOCR for raster pages.
+    Runs BOTH text-layer extraction (free, exact, but misses CAD vector text)
+    AND sliding-window OCR (slow, fuzzy, but reads vector text rendered as
+    pixels). Merges the two results — text-layer hits win on overlap because
+    they're confidence=1.0.
+
+    The team's workflow is "count every tag on the page" — they don't care
+    if a tag is in the PDF text layer or rendered as vectors. So we have to
+    look at both.
 
     Returns: list of {tag, cx, cy, x1, y1, x2, y2, conf, source, raw_text}.
     All coordinates in image pixels at the given DPI.
     """
-    # First try the text layer
-    hits = _scan_text_layer(pdf_path, page_index, valid_tags, dpi=dpi,
-                            verbose=verbose)
-    if hits:
-        return hits
-
-    if not ocr_fallback:
-        return []
-
-    # Fall back to rendering + sliding-window OCR
-    doc = fitz.open(pdf_path)
-    page = doc[page_index]
-    pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
-    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-    if pix.n == 4:
-        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-    elif pix.n == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    doc.close()
-    if verbose:
-        print(f"  [ocr fallback] page rendered {img.shape[1]}x{img.shape[0]}")
-    return _sliding_window_ocr(img, valid_tags, verbose=verbose)
+    all_hits = []
+    if use_text_layer:
+        all_hits.extend(_scan_text_layer(pdf_path, page_index, valid_tags,
+                                         dpi=dpi, verbose=verbose))
+    if use_ocr:
+        doc = fitz.open(pdf_path)
+        page = doc[page_index]
+        pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+        if pix.n == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        elif pix.n == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        doc.close()
+        if verbose:
+            print(f"  [ocr scan] page rendered {img.shape[1]}x{img.shape[0]}")
+        ocr_hits = _sliding_window_ocr(img, valid_tags, verbose=verbose)
+        # Skip OCR hits that coincide with a text-layer hit (avoid double-count)
+        for oh in ocr_hits:
+            collide = False
+            for th in all_hits:
+                if (th['tag'] == oh['tag']
+                        and abs(th['cx'] - oh['cx']) < merge_dist
+                        and abs(th['cy'] - oh['cy']) < merge_dist):
+                    collide = True
+                    break
+            if not collide:
+                all_hits.append(oh)
+    return all_hits
 
 
 if __name__ == '__main__':
@@ -325,6 +339,7 @@ if __name__ == '__main__':
     ap.add_argument('--page', type=int, required=True, help='1-indexed')
     ap.add_argument('--dpi', type=int, default=200)
     ap.add_argument('--no-ocr', action='store_true', help='Text-layer only')
+    ap.add_argument('--no-text', action='store_true', help='OCR only')
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
 
@@ -333,7 +348,9 @@ if __name__ == '__main__':
     print(f"Schedule tags ({len(tags)}): {tags}\n")
 
     hits = scan_page_for_tags(args.pdf, args.page - 1, tags, dpi=args.dpi,
-                              ocr_fallback=not args.no_ocr, verbose=args.verbose)
+                              use_text_layer=not args.no_text,
+                              use_ocr=not args.no_ocr,
+                              verbose=args.verbose)
     counts = Counter(h['tag'] for h in hits)
     sources = Counter(h['source'] for h in hits)
     print(f"=== {len(hits)} hits, {len(counts)} unique tags ===")

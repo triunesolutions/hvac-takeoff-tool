@@ -518,7 +518,8 @@ def main():
             try:
                 from sliding_ocr import scan_page_for_tags
                 hits = scan_page_for_tags(str(pdf_path), pi, valid_tags,
-                                          dpi=200, ocr_fallback=False)
+                                          dpi=200, use_text_layer=True,
+                                          use_ocr=True)
             except Exception as e:
                 print(f"scanner failed: {e}")
                 hits = []

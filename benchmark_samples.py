@@ -266,7 +266,7 @@ def score_project(team_rows, our_rows):
 
 # ─── Pipeline runner ───────────────────────────────────────────────────────
 
-def run_one_project(project, out_root, cache=False, model=None):
+def run_one_project(project, out_root, cache=False, model=None, scanner=None):
     """Run takeoff_cli.py on the project's plan PDF. Returns dict with status,
     runtime, our_xlsx_path, error."""
     name = project['name']
@@ -286,6 +286,8 @@ def run_one_project(project, out_root, cache=False, model=None):
     ]
     if model:
         cmd += ['--model', str(model)]
+    if scanner:
+        cmd += ['--scanner', str(scanner)]
     t0 = time.time()
     try:
         # 10-min timeout per project. UTF-8 for non-ASCII project names.
@@ -448,7 +450,15 @@ def main():
     ap.add_argument('--model', default=None,
                     help='Path to YOLO model .pt (passes through to takeoff_cli --model). '
                          'Default: takeoff_cli uses models/hvac_yolov8s_v9.pt.')
+    ap.add_argument('--scanner', choices=['bubble', 'text', 'auto'], default=None,
+                    help='Pass-through to takeoff_cli --scanner.')
+    ap.add_argument('--out', default=None,
+                    help='Override output dir (default: benchmark_output/).')
     args = ap.parse_args()
+
+    global OUT_ROOT
+    if args.out:
+        OUT_ROOT = Path(args.out)
 
     root = Path(args.root)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -474,7 +484,7 @@ def main():
         print(f"  plan:  {proj['plan_pdf'].name}")
         print(f"  truth: {proj['truth_xlsx'].name}")
 
-        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache, model=args.model)
+        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache, model=args.model, scanner=args.scanner)
         status = run_info['status']
         print(f"  status: {status}  ({run_info['runtime_s']:.0f}s)")
 
