@@ -772,7 +772,14 @@ def main():
                         help='Print full schedule variable dump and exit (no detection run)')
     parser.add_argument('--schedule-only', action='store_true',
                         help='Parse schedule and write variables JSON, skip YOLO detection')
+    parser.add_argument('--ocr-engine', choices=['easyocr', 'paddleocr_hvac'],
+                        default='easyocr',
+                        help='OCR engine for bubble-crop reads. paddleocr_hvac uses '
+                             'the fine-tuned PP-OCRv4 rec head at models/rec_ppocr_v4_hvac.')
     args = parser.parse_args()
+
+    import tag_matcher
+    tag_matcher.set_ocr_engine(args.ocr_engine)
 
     pdf_path = Path(args.pdf).resolve()
     if not pdf_path.exists():

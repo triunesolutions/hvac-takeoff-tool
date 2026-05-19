@@ -38,6 +38,12 @@ yolo_dataset_v*/
 yolov8*.pt
 !models/hvac*.pt
 
+# OCR fine-tune scratch (regeneratable from tag_bubble_labels.jsonl + tag_dataset.zip)
+ocr_finetune/
+# Whitelist the trained PP-OCRv4 rec head (commit when it lands)
+!models/rec_ppocr_v4_hvac/
+!models/rec_ppocr_v4_hvac/**
+
 # Dataset zip (large)
 yolo_dataset.zip
 yolo_dataset_*.zip

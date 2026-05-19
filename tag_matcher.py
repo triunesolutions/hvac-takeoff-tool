@@ -20,6 +20,20 @@ from collections import defaultdict
 
 
 _easyocr_reader = None
+_paddle_rec = None
+
+# OCR engine for bubble-crop OCR. Set via takeoff_cli.py --ocr-engine; falls
+# back to the env var HVAC_OCR_ENGINE so other entrypoints can opt in.
+# 'easyocr' = the existing behaviour. 'paddleocr_hvac' = the fine-tuned
+# PP-OCRv4 rec head loaded from models/rec_ppocr_v4_hvac/.
+import os as _os
+OCR_ENGINE = _os.environ.get("HVAC_OCR_ENGINE", "easyocr")
+
+
+def set_ocr_engine(engine: str):
+    """Switch the bubble-crop OCR engine at runtime ('easyocr' or 'paddleocr_hvac')."""
+    global OCR_ENGINE
+    OCR_ENGINE = engine
 
 
 def get_ocr_reader():
@@ -29,6 +43,37 @@ def get_ocr_reader():
         import easyocr
         _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
     return _easyocr_reader
+
+
+def get_paddle_rec(model_dir: str = "models/rec_ppocr_v4_hvac"):
+    """Lazy-init PaddleOCR rec head (HVAC-finetuned). Detector is disabled —
+    bubble localization comes from hvac_tag_detector_v1.pt, we only need the
+    text recognizer here. Returns None if PaddleOCR or weights unavailable."""
+    global _paddle_rec
+    if _paddle_rec is False:
+        return None
+    if _paddle_rec is None:
+        try:
+            from pathlib import Path
+            if not Path(model_dir).exists():
+                print(f"[paddle] weights not found at {model_dir}; falling back to EasyOCR.")
+                _paddle_rec = False
+                return None
+            from paddleocr import PaddleOCR
+            _paddle_rec = PaddleOCR(
+                use_angle_cls=False,
+                lang="en",
+                det=False,
+                rec=True,
+                rec_model_dir=model_dir,
+                rec_char_dict_path=str(Path(model_dir) / "dict.txt"),
+                show_log=False,
+            )
+        except Exception as e:
+            print(f"[paddle] init failed ({e}); falling back to EasyOCR.")
+            _paddle_rec = False
+            return None
+    return _paddle_rec
 
 
 def _normalize_for_match(s):
@@ -126,10 +171,23 @@ def detect_bubbles_on_page(img, conf=0.25, tile=320, overlap=80):
 
 
 def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
-    """OCR the tight crop for each bubble bbox (with small padding + upscale).
-    Returns each bubble enriched with {'text', 'ocr_conf'}."""
+    """OCR the tight crop for each bubble bbox. Dispatches to the engine
+    selected via OCR_ENGINE / HVAC_OCR_ENGINE. Returns each bubble enriched
+    with {'text', 'ocr_conf'}."""
     if not bubbles:
         return bubbles
+    if OCR_ENGINE == "paddleocr_hvac":
+        paddle = get_paddle_rec()
+        if paddle is not None:
+            return _ocr_bubble_crops_paddle(img, bubbles, paddle,
+                                            pad=pad, conf_threshold=conf_threshold)
+        # paddle requested but unavailable → silent fallback to EasyOCR
+    return _ocr_bubble_crops_easyocr(img, bubbles, pad=pad, upscale=upscale,
+                                     conf_threshold=conf_threshold)
+
+
+def _ocr_bubble_crops_easyocr(img, bubbles, pad=12, upscale=2.0,
+                              conf_threshold=0.2):
     import cv2
     reader = get_ocr_reader()
     out = []
@@ -163,6 +221,39 @@ def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
         b2 = dict(b)
         b2['text'] = text
         b2['ocr_conf'] = sum(c for _, c in toks) / len(toks)
+        out.append(b2)
+    return out
+
+
+def _ocr_bubble_crops_paddle(img, bubbles, paddle, pad=4, conf_threshold=0.2):
+    """PP-OCRv4 path. Preprocessing must match ocr_preprocess.preprocess_bubble_crop
+    (3x upscale + Otsu) since that's what the rec head was fine-tuned on."""
+    from ocr_preprocess import preprocess_bubble_crop
+    out = []
+    h, w = img.shape[:2]
+    for b in bubbles:
+        x1 = max(0, int(b['x1']) - pad)
+        y1 = max(0, int(b['y1']) - pad)
+        x2 = min(w, int(b['x2']) + pad)
+        y2 = min(h, int(b['y2']) + pad)
+        crop = img[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+        proc = preprocess_bubble_crop(crop)
+        try:
+            res = paddle.ocr(proc, det=False, cls=False)
+        except Exception:
+            continue
+        # PaddleOCR returns [[(text, conf), ...]] when det=False
+        if not res or not res[0]:
+            continue
+        text, conf = res[0][0]
+        text = (text or "").strip().upper()
+        if not text or conf < conf_threshold:
+            continue
+        b2 = dict(b)
+        b2['text'] = text
+        b2['ocr_conf'] = float(conf)
         out.append(b2)
     return out
 

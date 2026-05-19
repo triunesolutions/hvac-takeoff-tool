@@ -653,3 +653,80 @@ python -X utf8 import_from_label_studio.py "<project>" \
 cp benchmark_output/<project>/ls_*.{txt,json,csv} ground_truth/<project>/
 git add ground_truth/<project>/ && git commit -m "Add ground truth for <project>"
 ```
+
+---
+
+## 20. PP-OCRv4 Rec-Head Fine-Tune for Tag Bubbles (2026-05-19 — scaffold)
+
+**Motivation.** v10 hits 81% median / 95% max recall on the 7-project benchmark but precision is 57-66% on Flex projects, driven largely by OCR character confusions on CAD-stamped tag bubbles (O↔0, I↔1, S↔5, B↔8, dropped hyphens). Canaveral (canaveral.ai, $1,668/seat/yr) is now a live competitor; tag accuracy is the durable moat. Plan accepted 2026-05-19: fine-tune a PP-OCRv4 recognition head on the verified bubble-crop set and benchmark-gate the swap.
+
+### 20.1 Dataset
+
+| Artifact | Path | Rows |
+|---|---|---:|
+| Verified bubble bboxes (hits only) | `tag_bubble_labels.jsonl` filter `reason == "hit"` | **9,908** |
+| Source crops (320×320) | `tag_dataset/images/<project>/<idx>.png` (gitignored; GH release `datasets-2026-05-11`) | 26,722 |
+
+Vocabulary: 37 chars (A-Z, 0-9, hyphen). Max tag length: 12 (covers `VAV-23A` + headroom). Per-project split, not random — held-out default is `Sola_Salons` + `01_Flex_200_Corridors` to cover both major drawing styles.
+
+### 20.2 Train/inference parity (CRITICAL)
+
+Both sides go through `ocr_preprocess.preprocess_bubble_crop`: 3× upscale + Otsu binarize, RGB output. The labeler (`label_tag_bubbles_ocr.preprocess_for_ocr`) used the same recipe, so the bubble_rect_in_crop values in `tag_bubble_labels.jsonl` are expressed in that 3× space — `prepare_ocr_finetune.py` divides by 3 before cropping from the raw 320×320 PNG and re-applies the preprocessing. Any change here means re-train; do not edit one side without the other.
+
+### 20.3 Files
+
+| File | Role |
+|---|---|
+| `ocr_preprocess.py` | Single source of truth for upscale+Otsu (`preprocess_bubble_crop`) |
+| `prepare_ocr_finetune.py` | Produces `ocr_finetune/{images,train.txt,val.txt,dict.txt,manifest.json}` |
+| `kaggle_train_ocr_rec.ipynb` | T4 fine-tune notebook (PP-OCRv4 English mobile, 80 epochs, lr 5e-4, cosine + 2-epoch warmup) |
+| `tag_matcher.py` | `OCR_ENGINE` switch + `_ocr_bubble_crops_paddle` for PP-OCRv4; EasyOCR path unchanged for back-compat |
+| `takeoff_cli.py` | `--ocr-engine {easyocr,paddleocr_hvac}` (default `easyocr` until benchmark passes) |
+| `models/rec_ppocr_v4_hvac/` | Trained inference weights (commit when ready); `.gitignore` whitelists this path |
+
+### 20.4 Run procedure
+
+```bash
+# 1. Pull source crops (new PC or first run)
+gh release download datasets-2026-05-11 --repo triunesolutions/hvac-takeoff-tool --pattern tag_dataset.zip
+python -c "import zipfile; zipfile.ZipFile('tag_dataset.zip').extractall('.')"
+
+# 2. Build the fine-tune set
+python prepare_ocr_finetune.py
+# → ocr_finetune/train.txt, val.txt, dict.txt, images/<project>/*.png
+# Expect roughly 8.5k train / 1.4k val rows.
+
+# 3. Zip and upload to Kaggle
+python -c "import shutil; shutil.make_archive('ocr_finetune', 'zip', '.', 'ocr_finetune')"
+# Upload ocr_finetune.zip as a Kaggle dataset, attach to a T4 notebook.
+
+# 4. Run kaggle_train_ocr_rec.ipynb top-to-bottom (~30-60 min)
+# Download rec_ppocr_v4_hvac.zip from /kaggle/working/
+
+# 5. Drop weights into the repo
+unzip rec_ppocr_v4_hvac.zip -d models/
+ls models/rec_ppocr_v4_hvac/    # inference.pdmodel, inference.pdiparams, dict.txt
+
+# 6. Smoke test
+pip install paddlepaddle==2.5.2 paddleocr==2.7.3
+python takeoff_cli.py "<small Flex pdf>" --ocr-engine paddleocr_hvac --pages 5
+
+# 7. Benchmark gate
+python benchmark_samples.py --layout projects --out benchmark_output_v10_paddleocr
+# Compare benchmark_summary.md vs benchmark_output_v10/.
+```
+
+### 20.5 Ship criteria
+
+- Median product recall ≥ **79%** (no more than 2-point drop from 81%).
+- Median product precision **strictly higher** than v10.
+- No project regresses > 5 points on either axis.
+- Yucaipa B (currently 95% / 84%) stays above 90% / 80%.
+
+If the gate fails, fall back to EasyOCR via the flag default and analyze per-project regressions before iterating on the training data (most likely cause: font drift on a held-out project not represented in the 90-project train set).
+
+### 20.6 Status
+
+- Code scaffold landed 2026-05-19.
+- Trained weights pending Kaggle run on the new PC.
+- Benchmark deltas to be filled in once the swap clears the gate.
