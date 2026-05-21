@@ -115,12 +115,9 @@ def main():
             skipped_crop += 1
             continue
 
-        # bubble_rect_in_crop is in the *upscaled* labeling coord space
-        # (3x; see label_tag_bubbles_ocr.preprocess_for_ocr). To recover the
-        # crop from the original 320x320 PNG we divide by 3, then re-apply
-        # the canonical preprocessing.
-        scale = 3.0
-        bx1, by1, bx2, by2 = x1 / scale, y1 / scale, x2 / scale, y2 / scale
+        # bubble_rect_in_crop is already in the original 320x320 crop space
+        # (label_tag_bubbles_ocr.py:301-303 undoes its own upscale before writing).
+        bx1, by1, bx2, by2 = x1, y1, x2, y2
 
         try:
             pil = Image.open(src_img).convert("RGB")
