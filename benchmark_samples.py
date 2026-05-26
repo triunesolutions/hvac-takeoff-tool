@@ -268,7 +268,7 @@ def score_project(team_rows, our_rows):
 
 # ─── Pipeline runner ───────────────────────────────────────────────────────
 
-def run_one_project(project, out_root, cache=False, model=None):
+def run_one_project(project, out_root, cache=False, model=None, ocr_engine=None, timeout=600):
     """Run takeoff_cli.py on the project's plan PDF. Returns dict with status,
     runtime, our_xlsx_path, error."""
     name = project['name']
@@ -288,10 +288,12 @@ def run_one_project(project, out_root, cache=False, model=None):
     ]
     if model:
         cmd += ['--model', str(model)]
+    if ocr_engine:
+        cmd += ['--ocr-engine', str(ocr_engine)]
     t0 = time.time()
     try:
-        # 10-min timeout per project. UTF-8 for non-ASCII project names.
-        proc = subprocess.run(cmd, capture_output=True, timeout=600,
+        # Per-project timeout (default 10 min). UTF-8 for non-ASCII project names.
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout,
                               encoding='utf-8', errors='replace')
     except subprocess.TimeoutExpired:
         return {'status': 'timeout', 'our_xlsx': our_xlsx, 'variables_json': variables_json,
@@ -451,6 +453,10 @@ def main():
                          "'projects' = raw/+excel/.")
     ap.add_argument('--out', default=None,
                     help='Override output dir (default: benchmark_output/).')
+    ap.add_argument('--ocr-engine', choices=['easyocr', 'paddleocr_hvac'], default=None,
+                    help='Pass through to takeoff_cli --ocr-engine. Default: CLI default (easyocr).')
+    ap.add_argument('--timeout', type=int, default=600,
+                    help='Per-project CLI timeout in seconds (default 600).')
     args = ap.parse_args()
 
     global OUT_ROOT
@@ -480,7 +486,8 @@ def main():
         print(f"  plan:  {proj['plan_pdf'].name}")
         print(f"  truth: {proj['truth_xlsx'].name}")
 
-        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache, model=args.model)
+        run_info = run_one_project(proj, OUT_ROOT, cache=args.cache, model=args.model,
+                                   ocr_engine=args.ocr_engine, timeout=args.timeout)
         status = run_info['status']
         print(f"  status: {status}  ({run_info['runtime_s']:.0f}s)")
 
