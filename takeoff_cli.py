@@ -35,7 +35,7 @@ from schedule_parser import parse_pdf_schedules, dump_variables
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = 'models/hvac_yolov8s_v9.pt'
+DEFAULT_MODEL = 'models/hvac_yolov8s_v10.pt'
 DPI = 200
 TILE_SIZE = 640
 TILE_OVERLAP = 100
