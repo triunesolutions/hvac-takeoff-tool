@@ -74,3 +74,7 @@ tag_bubble_labels.log
 tag_bubble_sample*.jsonl
 yolo_zip.log
 zip.log
+
+# GRD extractor outputs (regenerable)
+grd_output/
+grd_bench*/
