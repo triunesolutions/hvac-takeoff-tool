@@ -449,8 +449,15 @@ def display_to_annot(dx, dy, rot, mb_w, mb_h):
 
 # ─── INFERENCE ────────────────────────────────────────────────────────────────
 
-def run_inference(model, img, conf=DEFAULT_CONF):
-    """Tile image, run YOLO, return deduplicated detections."""
+def run_inference(model, img, conf=DEFAULT_CONF, deadline=None):
+    """Tile image, run YOLO, return deduplicated detections.
+
+    deadline : float or None — time.time() cutoff. Large-format sheets tile into
+    ~190 crops at 200 DPI; a single page can take minutes. When the deadline
+    passes mid-page the tile loop stops and returns the detections found so far,
+    so one huge page can't blow the overall budget (the between-page check in
+    main() only fires between pages, not within one).
+    """
     h, w = img.shape[:2]
     step = TILE_SIZE - TILE_OVERLAP
 
@@ -475,7 +482,11 @@ def run_inference(model, img, conf=DEFAULT_CONF):
 
     # Inference
     dets = []
+    truncated = False
     for tile, xs, ys in tiles:
+        if deadline is not None and time.time() > deadline:
+            truncated = True
+            break
         results = model.predict(tile, conf=conf, verbose=False)
         for r in results:
             for box in r.boxes:
@@ -496,6 +507,8 @@ def run_inference(model, img, conf=DEFAULT_CONF):
     for d in sorted(dets, key=lambda x: x['conf'], reverse=True):
         if not any(abs(d['cx'] - f['cx']) < NMS_DIST and abs(d['cy'] - f['cy']) < NMS_DIST for f in final):
             final.append(d)
+    if truncated:
+        print(f"(page inference hit time budget — partial: {len(final)} dets) ", end='', flush=True)
     return final
 
 
@@ -910,7 +923,7 @@ def main():
             print(f"FAILED: {e}")
             continue
         print(f"detecting...", end=' ', flush=True)
-        dets = run_inference(model, img, conf=args.conf)
+        dets = run_inference(model, img, conf=args.conf, deadline=deadline)
         elapsed = time.time() - t0
         print(f"{len(dets)} found ({elapsed:.0f}s)")
         if dets:
