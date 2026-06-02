@@ -1,6 +1,6 @@
 # HVAC AI Takeoff Tool — Engineering Reference
 
-**Last updated:** May 11, 2026
+**Last updated:** June 2, 2026
 **Purpose:** Technical reference for engineers (and future Claude Code sessions) working on the codebase. Read this before making changes.
 
 > **Resuming a Claude Code session?** Read this file end-to-end first. Section 19 (added May 5) covers the Label Studio review loop and the 6-project ground-truth dataset feeding v11. Sections 14–17 cover post-April-21 work (tag-bubble detector, title-block extractor). Sections 1–13 are still accurate as of April 21 — minor extensions noted inline.
@@ -195,7 +195,7 @@ The CLI entry point. Flags:
 - `--pages 1 2 3` — only process specific pages (1-indexed).
 - `--all-pages` — bypass the MECHANICAL-PLAN keyword filter.
 - `--conf 0.4` — YOLO confidence threshold (default 0.4).
-- `--model <path>` — override the default model (`models/hvac_yolov8s_v9.pt`).
+- `--model <path>` — override the default model (`models/hvac_yolov8s_v10.pt`; pass v9 to fall back).
 
 **Key detail:** takeoff_cli keeps rendered page images in a `page_images` dict after YOLO inference and passes them to `infer_tags` so Level 2b can OCR without re-rendering.
 
@@ -233,11 +233,14 @@ Three projects tested end-to-end as of April 2026:
 - ~26 `AD-GRD` detections where no readable bubble text sits within 140px.
 - ~13 likely YOLO over-detections (more heaters than the schedule suggests).
 
-**YOLOv8s v9 (production model):**
-- Trained on Kaggle T4 GPU
-- 124 projects, ~25K tiles, 35 classes
-- 66% full recall, 79% position recall on 12-project benchmark set
-- Production model at `models/hvac_yolov8s_v9.pt`
+**YOLOv8s v10 (production model — default as of 2026-06-02):**
+- Trained on Kaggle T4 GPU, 60 epochs, 153-project corpus (124 + expanded sample set)
+- 33 classes
+- Sample-benchmark (34 projects, `SAMPLE FILES 27.04.26/`): **max product_recall 78%**, 7 projects ≥50%, ~22% mean on scored projects. All-project median is dragged to 0% by 11 CLI timeouts on big plans — a runtime issue, not a model issue. See `docs/v10_vs_v9_2026-04-30.md`.
+- Production model at `models/hvac_yolov8s_v10.pt`
+
+**YOLOv8s v9 (legacy — `--model` fallback only):**
+- 124 projects, ~25K tiles, 35 classes. 66% full recall, 79% position recall on the older 12-project bench; max 33% on the sample set. Superseded by v10. File: `models/hvac_yolov8s_v9.pt`.
 
 ---
 
@@ -294,7 +297,7 @@ Python 3.12+ required (dev on 3.14).
 
 **Training data** is NOT in the repo. Lives at `C:\Users\JFL\Downloads\Triune\data to train\projects\` — ~130 projects as of April 2026. Ask JFL for access.
 
-**Production model:** `models/hvac_yolov8s_v9.pt` (committed). 35 classes.
+**Production model:** `models/hvac_yolov8s_v10.pt` (committed, CLI default). 33 classes. v9 (`models/hvac_yolov8s_v9.pt`) retained as a `--model` fallback.
 
 ---
 
@@ -336,7 +339,7 @@ Python 3.12+ required (dev on 3.14).
 ## 11. Roadmap
 
 **Phase 1 (DONE):**
-- YOLOv8 detection model trained and in production (`hvac_yolov8s_v9.pt`)
+- YOLOv8 detection model trained and in production (`hvac_yolov8s_v10.pt`; v9 legacy fallback)
 - Accuracy benchmarking pipeline
 - Schedule parser handling 3+ distinct schedule styles
 - TagVariable extraction with full property preservation
@@ -382,7 +385,8 @@ hvac-takeoff-tool/
 ├── colab_train.ipynb             ← Colab training notebook
 │
 ├── models/
-│   └── hvac_yolov8s_v9.pt        ← production model (35 classes)
+│   ├── hvac_yolov8s_v10.pt       ← production model (33 classes, CLI default)
+│   └── hvac_yolov8s_v9.pt        ← legacy (--model fallback, 35 classes)
 ├── templates/                    ← legend symbol templates (reference)
 ├── output/                       ← per-project takeoff outputs (gitignored)
 ├── runs/                         ← YOLO training runs (gitignored)
@@ -408,7 +412,7 @@ hvac-takeoff-tool/
 
 **Goal:** A second YOLO model trained specifically to detect **tag bubbles** (the small `A1` / `CU-1` labels next to symbols). Used as a stronger Level-2b signal: instead of OCR-ing arbitrary 150 px crops, we first detect bubble bboxes, then OCR only those tight crops.
 
-**Why a separate model:** The production v9 model detects equipment classes (diffusers, fans, CUs). It does *not* localize tag bubbles. Tag bubbles are a different visual entity — small circles/ovals/rectangles with 1–4 chars of text inside, drawn near (but not on) the symbol they identify. Treating them as their own detection class lets us crop tightly for OCR and get higher recall than the current 150 px window heuristic.
+**Why a separate model:** The production equipment model (v10) detects equipment classes (diffusers, fans, CUs). It does *not* localize tag bubbles. Tag bubbles are a different visual entity — small circles/ovals/rectangles with 1–4 chars of text inside, drawn near (but not on) the symbol they identify. Treating them as their own detection class lets us crop tightly for OCR and get higher recall than the current 150 px window heuristic.
 
 ### 14.1 Pipeline (already built)
 
