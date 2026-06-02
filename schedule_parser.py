@@ -325,22 +325,38 @@ def _prop_lookup(props, keywords):
     return ''
 
 
-def extract_schedules_and_marks(pdf_path):
+def extract_schedules_and_marks(pdf_path, time_budget=None):
     """
     Extract schedule tables and equipment marks from a PDF.
     v2: heavy validation, noise filtering.
+
+    time_budget : float or None
+        Wall-clock seconds allowed for the per-page scan. pdfplumber's
+        extract_tables() costs ~4s/page on large-format plan sheets, so on big
+        documents the unbounded scan can run for minutes. When set, the loop
+        stops once the budget is exceeded and prints how many pages were skipped
+        (schedules are usually front-loaded, so the early pages matter most).
+        Default None = unlimited (unchanged behaviour for small files).
 
     Returns (schedule_tables, marks_list, mark_details, variables) where
     variables is a list of TagVariable dicts — one per (tag, source_row) — with
     the full row properties preserved and an inferred YOLO class attached.
     """
+    import time
     schedule_tables = []
     marks_set = set()
     mark_details = {}
     variables = []
 
+    _t0 = time.time()
     with pdfplumber.open(pdf_path) as pdf:
+        n_pages = len(pdf.pages)
         for page_index, page in enumerate(pdf.pages):
+            if time_budget is not None and (time.time() - _t0) > time_budget:
+                print(f"  [schedule] time budget ({time_budget:.0f}s) reached after "
+                      f"page {page_index}/{n_pages} — skipping remaining "
+                      f"{n_pages - page_index} page(s) for table scan")
+                break
             try:
                 text_upper = (page.extract_text() or "").upper()
                 page_has_schedule = any(kw in text_upper for kw in SCHEDULE_KEYWORDS)
@@ -621,12 +637,21 @@ def extract_schedules_and_marks(pdf_path):
     return schedule_tables, sorted(list(marks_set)), mark_details, variables
 
 
-def extract_legend_info(pdf_path):
-    """Extract legend/abbreviation items."""
+def extract_legend_info(pdf_path, time_budget=None):
+    """Extract legend/abbreviation items.
+
+    time_budget : float or None — wall-clock seconds for the scan (None =
+    unlimited). Legend pages can be the same heavy schedule sheets, so this
+    scan is bounded too on large plans.
+    """
+    import time
     legend_items = {}
 
+    _t0 = time.time()
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
+            if time_budget is not None and (time.time() - _t0) > time_budget:
+                break
             try:
                 text = page.extract_text() or ""
             except Exception:
@@ -667,12 +692,14 @@ def get_mark_type(mark):
     return m.group(1) if m else mark.split("-")[0] if "-" in mark else mark
 
 
-def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
+def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
     """
     Main entry point.
 
     exclude_prefixes: set of equipment type prefixes to exclude (default: none).
     Pass exclude_prefixes=set() to get ALL tags.
+    time_budget: wall-clock seconds for the page scan (None = unlimited). See
+    extract_schedules_and_marks — guards against minute-long scans on big plans.
 
     Returns (schedules, marks, mark_details, legend, summary, variables).
     `variables` is a list of TagVariable dicts — one per (tag, source_row) pair —
@@ -682,8 +709,13 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None):
     if exclude_prefixes is None:
         exclude_prefixes = EXCLUDE_PREFIXES
 
-    schedules, marks, mark_details, variables = extract_schedules_and_marks(pdf_path)
-    legend = extract_legend_info(pdf_path)
+    # Split the scan budget: schedules (the costly extract_tables loop) get the
+    # bulk, legend gets a smaller slice so both stay bounded on large plans.
+    sched_tb = (time_budget * 0.8) if time_budget else None
+    legend_tb = (time_budget * 0.2) if time_budget else None
+    schedules, marks, mark_details, variables = extract_schedules_and_marks(
+        pdf_path, time_budget=sched_tb)
+    legend = extract_legend_info(pdf_path, time_budget=legend_tb)
 
     # Filter out excluded equipment types (e.g., VAV boxes)
     if exclude_prefixes:

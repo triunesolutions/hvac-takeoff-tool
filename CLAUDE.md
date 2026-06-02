@@ -196,6 +196,8 @@ The CLI entry point. Flags:
 - `--all-pages` — bypass the MECHANICAL-PLAN keyword filter.
 - `--conf 0.4` — YOLO confidence threshold (default 0.4).
 - `--model <path>` — override the default model (`models/hvac_yolov8s_v10.pt`; pass v9 to fall back).
+- `--time-budget <s>` — wall-clock budget for the whole run (default **540s**, under the 600s benchmark cutoff; `0` = unlimited). Schedule parsing gets ~40% of it (split 80/20 between the table and legend scans), the YOLO page loop and tag-inference OCR stop at the deadline and write **partial** output rather than getting killed. Added 2026-06-02 to fix large-plan timeouts.
+- `--max-pages <n>` — cap detection pages (default **60**; `0` = no cap). Protects against huge documents and the all-pages fallback.
 
 **Key detail:** takeoff_cli keeps rendered page images in a `page_images` dict after YOLO inference and passes them to `infer_tags` so Level 2b can OCR without re-rendering.
 
@@ -248,7 +250,7 @@ Three projects tested end-to-end as of April 2026:
 
 1. **Class-name mismatches** between YOLO (`SPLIT SYSTEM`, `AD-GRD`) and schedule-inferred class (`CONDENSING UNIT`, `AD-T-BAR SUPPLY`). No alias layer yet.
 2. **Tag case sensitivity** — `A1` and `a1` (e.g., United AIR DEVICE SCHEDULE) collapse to the same uppercase tag. Different sizes remain distinguishable via `properties`, but the tag string is identical.
-3. **Large PDFs crash pdfplumber** — St Elizabeth (4+ GB) can't be loaded. Need a streaming/chunked alternative.
+3. **Large PDFs crash pdfplumber** — St Elizabeth (4+ GB) can't be loaded. Need a streaming/chunked alternative. **Partly mitigated (2026-06-02):** `parse_pdf_schedules`/`extract_legend_info` ran `extract_tables()` on every page unbounded (~4s/page → 70s on 18-page Clearwater, minutes on 64-page plans, was the #1 benchmark-timeout cause). Both scans now take a `time_budget` and the CLI enforces a `--time-budget`/`--max-pages` so big plans finish with partial output instead of being killed. The underlying per-page pdfplumber cost is unchanged — streaming is still the real fix.
 4. **EasyOCR unreliable on very small bubbles** — letters inside circle stamps often fail. Level 2b works best when the tag bubble is at least 15-20px tall in the rendered image (at 200 DPI).
 5. **Horizontal schedules with multiple stacked sub-sections** (e.g., Aritzia's combined AHU+CU schedule) sometimes pdfplumber fragments into many sub-tables; schedule names can be lost per fragment.
 6. **Fingerprint matching is limited** to drawings where distinctive property values (CFM, model numbers) are printed near each detection. Many drawings print only the tag bubble.

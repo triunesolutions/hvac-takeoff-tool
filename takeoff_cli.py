@@ -772,7 +772,18 @@ def main():
                         help='Print full schedule variable dump and exit (no detection run)')
     parser.add_argument('--schedule-only', action='store_true',
                         help='Parse schedule and write variables JSON, skip YOLO detection')
+    parser.add_argument('--time-budget', type=float, default=540.0,
+                        help='Wall-clock seconds for the whole run before it stops processing '
+                             'further pages and writes partial output (default 540; 0 = unlimited). '
+                             'Guards against timeouts on large plans.')
+    parser.add_argument('--max-pages', type=int, default=60,
+                        help='Cap on the number of pages to run detection on (default 60; 0 = no cap). '
+                             'Protects against huge documents and the all-pages fallback.')
     args = parser.parse_args()
+
+    cli_start = time.time()
+    # Overall deadline; 0 (or negative) disables the budget.
+    deadline = (cli_start + args.time_budget) if args.time_budget and args.time_budget > 0 else None
 
     pdf_path = Path(args.pdf).resolve()
     if not pdf_path.exists():
@@ -806,8 +817,12 @@ def main():
     # Parse schedule first — always, even in --schedule-only mode
     print("Parsing schedule...")
     variables = []
+    # Give the schedule scan at most ~40% of the overall budget so a big
+    # document can't burn the whole budget on pdfplumber before any detection.
+    sched_budget = (args.time_budget * 0.4) if args.time_budget and args.time_budget > 0 else None
     try:
-        schedules, marks, mark_details, legend, sched_summary, variables = parse_pdf_schedules(str(pdf_path))
+        schedules, marks, mark_details, legend, sched_summary, variables = parse_pdf_schedules(
+            str(pdf_path), time_budget=sched_budget)
         print(f"  {len(schedules)} schedule table(s), {len(marks)} unique tag(s), "
               f"{len(variables)} variable(s)")
         if marks:
@@ -865,6 +880,12 @@ def main():
         if not pages_to_process:
             pages_to_process = list(range(total_pages))
 
+    # Cap pages to protect against huge documents / the all-pages fallback.
+    if args.max_pages and args.max_pages > 0 and len(pages_to_process) > args.max_pages:
+        print(f"  [pages] capping {len(pages_to_process)} candidate pages to first "
+              f"{args.max_pages} (--max-pages); use --max-pages 0 to disable")
+        pages_to_process = pages_to_process[:args.max_pages]
+
     print(f"Processing {len(pages_to_process)} page(s) of {total_pages} total\n")
 
     # Process each page — keep rendered images so tag inference can OCR
@@ -872,7 +893,15 @@ def main():
     detections_per_page = {}
     page_images = {}
     t_start = time.time()
+    pages_done = 0
     for page_idx in pages_to_process:
+        if deadline is not None and time.time() > deadline:
+            remaining = len(pages_to_process) - pages_done
+            print(f"\n  [time] budget ({args.time_budget:.0f}s) reached — stopping after "
+                  f"{pages_done} page(s), skipping {remaining}. Writing partial output. "
+                  f"Re-run with --time-budget 0 or a subset via --pages for full coverage.")
+            break
+        pages_done += 1
         t0 = time.time()
         print(f"  Page {page_idx+1}: rendering...", end=' ', flush=True)
         try:
@@ -896,7 +925,7 @@ def main():
         print("\nInferring tags...")
         detections_per_page, tag_stats = infer_tags(
             detections_per_page, schedules, marks, mark_details, str(pdf_path),
-            variables=variables, page_images=page_images
+            variables=variables, page_images=page_images, deadline=deadline
         )
         print(f"  Tagged: {tag_stats['tagged']}/{tag_stats['total']} ({tag_stats['tagged_pct']:.0f}%)")
         for ls in tag_stats.get('levels', []):

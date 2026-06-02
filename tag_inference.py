@@ -755,7 +755,7 @@ def level3_class_fallback(detections):
 # ─── MAIN ENTRY POINT ───────────────────────────────────────────────────────
 
 def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
-               variables=None, page_images=None):
+               variables=None, page_images=None, deadline=None):
     """
     Run all levels of tag inference on all detections.
 
@@ -765,10 +765,17 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
       2b.  Legacy CFM/size matching from mark_details (fallback)
       3.   Mark anything still untagged as no-tag
 
+    deadline : float or None
+        Optional time.time() deadline. The per-page loop stops launching the
+        expensive Level-2a/2b passes (text-layer scan, bubble YOLO, windowed
+        OCR) once exceeded; remaining detections fall through to Level 3
+        (no-tag) so the run still finishes and writes output.
+
     Returns:
         detections_per_page (mutated with 'tag' fields)
         stats: dict with per-level results
     """
+    import time
     # Build class→tags mapping — prefer variables (clean, single source) when
     # available, otherwise fall back to legacy schedule/mark_details inference.
     if variables:
@@ -777,15 +784,20 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
         class_to_tags = build_class_to_tags(mark_details, schedules)
 
     all_stats = []
+    _over_budget = False
 
     for page_idx, detections in detections_per_page.items():
+        if deadline is not None and not _over_budget and time.time() > deadline:
+            _over_budget = True
+            print(f"  [time] tag-inference budget reached — remaining pages get "
+                  f"Level-1 + fallback only (no OCR)")
         # Level 1: Direct mapping
         detections, stats1 = level1_direct_mapping(detections, marks, class_to_tags)
         all_stats.append(stats1)
 
         # Level 2a: Fingerprint matching using variables (from PDF text layer)
         untagged_count = sum(1 for d in detections if not d.get('tag'))
-        if untagged_count > 0 and variables:
+        if untagged_count > 0 and variables and not _over_budget:
             detections, stats2a = level2_fingerprint_matching(
                 detections, variables, pdf_path, page_idx, class_to_tags
             )
@@ -796,7 +808,7 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
         # Higher precision than the 150 px windowed OCR fallback below.
         untagged_count = sum(1 for d in detections if not d.get('tag'))
         if (untagged_count > 0 and variables and page_images
-                and page_idx in page_images):
+                and page_idx in page_images and not _over_budget):
             detections, stats2bp = level2b_bubble_detect(
                 detections, class_to_tags, page_images[page_idx]
             )
@@ -808,7 +820,7 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
         # drawings the bubble model wasn't trained for.
         untagged_count = sum(1 for d in detections if not d.get('tag'))
         if (untagged_count > 0 and variables and page_images
-                and page_idx in page_images):
+                and page_idx in page_images and not _over_budget):
             detections, stats2b = level2b_bubble_ocr(
                 detections, class_to_tags, page_images[page_idx]
             )
