@@ -285,6 +285,11 @@ def run_one_project(project, out_root, cache=False, model=None):
     cmd = [
         sys.executable, str(TOOL_DIR / 'takeoff_cli.py'),
         str(pdf), '--output-dir', str(out_dir),
+        # Self-stop well inside the 600s subprocess kill below. The CLI's own
+        # default is 540s, but model-load + Excel/PDF write add ~60s+ on top,
+        # which pushed Tesla-class plans past 600s and got them killed with
+        # zero output. 450s leaves ~150s of headroom to finish writing.
+        '--time-budget', '450',
     ]
     if model:
         cmd += ['--model', str(model)]
