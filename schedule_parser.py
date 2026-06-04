@@ -692,6 +692,133 @@ def get_mark_type(mark):
     return m.group(1) if m else mark.split("-")[0] if "-" in mark else mark
 
 
+# ─── OCR fallback for schedules with no text layer ──────────────────────────
+# Some plans (CAD/vector exports — common on retail-chain drawings) draw their
+# schedule tables as line-art: every glyph is a vector path, not a text object.
+# pdfplumber's text/table extraction then returns ZERO tags even though the
+# schedule is plainly visible. parse_pdf_schedules detects that case and falls
+# back to rendering the suspect pages and OCR-ing them, recovering at least the
+# valid tag list so tag inference has something to match floor-plan bubbles
+# against. (Full per-tag property reconstruction from OCR is a later step.)
+
+OCR_FALLBACK_MIN_TAGS = 3  # below this, assume the text layer failed → try OCR
+
+_SCHED_KW = ('SCHEDULE', 'CFM', 'NECK', 'MODEL', 'GRILLE', 'DIFFUSER',
+             'REGISTER', 'MANUFACTURER', 'MOUNTING', 'MBH', 'TONS', 'TYPE')
+
+
+# Air-device marks are routinely used BARE (no number) on retail plans — e.g.
+# AutoZone tags all 62 supply diffusers "CD" and all 16 return grilles "RG",
+# differentiated only by neck size. So a digit cannot be required. These are the
+# multi-letter diffuser/grille prefixes we accept unnumbered.
+_BARE_AIR_DEVICE = {'CD', 'RG', 'SD', 'SA', 'RA', 'EA', 'GR', 'SB', 'EG',
+                    'TG', 'RD', 'CG', 'LG', 'SG'}
+
+# Supply vs return is encoded in the air-device prefix; mounting is NOT (it lives
+# in the schedule table we can't reconstruct from OCR yet). We default mounting
+# to lay-in / T-bar — the dominant retail ceiling type, and the same assumption
+# the text-path already makes in _infer_yolo_class_from_service ("CEILING →
+# likely T-BAR"). This lets OCR-recovered diffuser tags carry the SPECIFIC
+# product the team's takeoff uses (AD-T-BAR SUPPLY/RETURN) instead of the generic
+# AD-GRD, which would never match. Refine to mounting-aware once table OCR lands.
+_OCR_SUPPLY_PREFIXES = {'CD', 'SD', 'SA', 'SG'}
+_OCR_RETURN_PREFIXES = {'RG', 'RA', 'RD', 'CG', 'TG'}
+
+
+def _ocr_infer_class(tag):
+    """Class inference for the OCR path. Uses the diffuser/grille prefix's
+    supply/return semantics to emit the specific AD-T-BAR product; falls back to
+    the generic prefix map for everything else (RTU, EF, ...)."""
+    m = re.match(r'^([A-Z]+)', tag)
+    pfx = m.group(1) if m else ''
+    if pfx in _OCR_SUPPLY_PREFIXES:
+        return 'AD-T-BAR SUPPLY'
+    if pfx in _OCR_RETURN_PREFIXES:
+        return 'AD-T-BAR RETURN'
+    return _infer_class_from_tag(tag)
+
+
+def _ocr_tag_from_token(token):
+    """Strict tag extractor for the noisy OCR path: normalize, then require the
+    prefix to be a KNOWN HVAC equipment prefix. Accept the token only if it
+    carries a digit (RTU-2, EF-1, TEF-3) OR is exactly a bare air-device prefix
+    (CD, RG, ...). This keeps real marks — including the unnumbered diffuser/
+    grille tags that dominate retail takeoffs — while dropping OCR garbage and
+    word fragments (E, E-THE, RTU-DO, model bits like HSPF2). Precision over
+    recall on purpose: a bad tag in valid_marks mis-tags real detections."""
+    t = normalize_tag(token)
+    if not t:
+        return None
+    m = re.match(r'^([A-Z]+)', t)
+    if not m or m.group(1) not in TAG_PREFIX_CLASS:
+        return None
+    if re.search(r'\d', t):
+        return t            # numbered mark — keep
+    if t in _BARE_AIR_DEVICE:
+        return t            # legitimately-bare diffuser/grille mark
+    return None             # bare non-air-device → almost certainly OCR noise
+
+
+def extract_marks_via_ocr(pdf_path, time_budget=None, dpi=150, max_pages=8):
+    """Render pages and OCR them to recover schedule tags when the text layer is
+    empty (vector/CAD schedules). Returns (marks, variables). Variables carry
+    tag + inferred class but EMPTY properties — the tag list alone unblocks tag
+    inference. Bounded by time_budget (wall-clock seconds) and max_pages."""
+    import time as _time
+    try:
+        import fitz
+        import numpy as np
+    except Exception:
+        return [], []
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return [], []
+
+    reader = None
+    _t0 = _time.time()
+    marks_set = set()
+    variables = []
+    n = min(len(doc), max_pages) if max_pages else len(doc)
+    for i in range(n):
+        if time_budget is not None and (_time.time() - _t0) > time_budget:
+            print(f"[schedule-ocr] time budget reached after page {i}/{n}")
+            break
+        try:
+            pix = doc[i].get_pixmap(dpi=dpi)
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n)
+            if pix.n == 4:
+                img = img[:, :, :3]
+        except Exception:
+            continue
+        if reader is None:
+            from tag_matcher import get_ocr_reader
+            reader = get_ocr_reader()
+        try:
+            toks = [str(t).upper() for t in reader.readtext(img, detail=0)]
+        except Exception:
+            continue
+        # Only harvest from schedule-looking pages — keeps floor-plan tag bubbles
+        # and detail-callout text from polluting the valid-mark list.
+        if sum(1 for t in toks if any(k in t for k in _SCHED_KW)) < 2:
+            continue
+        for t in toks:
+            tag = _ocr_tag_from_token(t)
+            if not tag or tag in marks_set:
+                continue
+            marks_set.add(tag)
+            variables.append({
+                'tag': tag,
+                'schedule_name': 'OCR SCHEDULE (no text layer)',
+                'page': i + 1,
+                'properties': {},
+                'inferred_yolo_class': _ocr_infer_class(tag),
+                'source_row_index': -1,
+            })
+    return sorted(marks_set), variables
+
+
 def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
     """
     Main entry point.
@@ -717,6 +844,25 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
         pdf_path, time_budget=sched_tb)
     legend = extract_legend_info(pdf_path, time_budget=legend_tb)
 
+    # OCR fallback: if the text layer yielded essentially no tags, the schedule
+    # is almost certainly vector line-art (CAD export) with no readable text.
+    # Render the pages and OCR them to recover the valid tag list so tag
+    # inference isn't starved. Skipped entirely when the text path worked, so
+    # text-layer projects pay zero cost and can't regress.
+    used_ocr_fallback = False
+    if len(variables) < OCR_FALLBACK_MIN_TAGS:
+        ocr_marks, ocr_vars = extract_marks_via_ocr(pdf_path, time_budget=sched_tb)
+        if ocr_vars:
+            used_ocr_fallback = True
+            existing = set(marks)
+            for v in ocr_vars:
+                if v['tag'] in existing:
+                    continue
+                existing.add(v['tag'])
+                variables.append(v)
+                mark_details.setdefault(v['tag'], {})
+            marks = sorted(existing)
+
     # Filter out excluded equipment types (e.g., VAV boxes)
     if exclude_prefixes:
         filtered_marks = [m for m in marks if get_mark_type(m) not in exclude_prefixes]
@@ -740,6 +886,7 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
         'types': dict(type_counts),
         'marks': marks,
         'total_variables': len(variables),
+        'used_ocr_fallback': used_ocr_fallback,
     }
 
     return schedules, marks, mark_details, legend, summary, variables

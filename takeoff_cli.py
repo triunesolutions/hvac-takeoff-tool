@@ -580,8 +580,15 @@ def _prop(details, keywords):
     return ''
 
 
-def write_excel(output_path, detections_per_page, project_name, schedule_details=None):
-    """Write Excel takeoff matching team's format."""
+def write_excel(output_path, detections_per_page, project_name, schedule_details=None,
+                tag_class=None):
+    """Write Excel takeoff matching team's format.
+
+    tag_class: optional {tag -> specific YOLO class} from the schedule variables.
+    Used to refine a generic AD-GRD detection into the specific product its
+    matched tag implies (e.g. AD-GRD + tag 'CD' -> AD-T-BAR SUPPLY). The team's
+    takeoff lists the specific product, so without this the row never matches.
+    """
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -591,6 +598,20 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
 
     if schedule_details is None:
         schedule_details = {}
+    tag_class = tag_class or {}
+
+    # Generic detection classes that should defer to the matched tag's specific
+    # schedule class when one exists. YOLO localizes a square ceiling device as
+    # the generic AD-GRD; the schedule tag (CD/RG/...) is what tells supply vs
+    # return and the exact product family.
+    _GENERIC_CLASSES = {'AD-GRD'}
+
+    def _product_for(cls, tag):
+        if cls in _GENERIC_CLASSES and tag:
+            tc = tag_class.get(tag)
+            if tc and tc not in _GENERIC_CLASSES:
+                return tc
+        return cls
 
     wb = openpyxl.Workbook()
 
@@ -615,8 +636,8 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
     grouped = defaultdict(lambda: {'count': 0, 'pages': set()})
     for page_idx, dets in detections_per_page.items():
         for d in dets:
-            cls = d['cls']
             tag = d.get('tag') or ''
+            cls = _product_for(d['cls'], tag)
             key = (cls, tag)
             grouped[key]['count'] += 1
             grouped[key]['pages'].add(page_idx + 1)
@@ -694,7 +715,7 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
             neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
             etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
 
-            ws2.cell(row=row, column=1, value=d['cls'])
+            ws2.cell(row=row, column=1, value=_product_for(d['cls'], tag))
             ws2.cell(row=row, column=2, value=brand)
             ws2.cell(row=row, column=3, value=model)
             ws2.cell(row=row, column=4, value=1)
@@ -985,7 +1006,17 @@ def main():
     annotate_pdf(str(pdf_path), str(annotated_pdf_path), detections_per_page)
 
     print(f"  Excel takeoff:  {excel_path}")
-    write_excel(str(excel_path), detections_per_page, pdf_path.stem, mark_details)
+    # Map each tag to its specific schedule class so generic AD-GRD detections
+    # can be refined to the exact product their matched tag implies. Scoped to
+    # OCR-fallback (vector-schedule) projects only — the text path already emits
+    # specific products via the real schedule, so leaving it untouched guarantees
+    # zero regression on text-layer plans.
+    tag_class = {}
+    if sched_summary.get('used_ocr_fallback'):
+        tag_class = {v['tag']: v.get('inferred_yolo_class')
+                     for v in variables if v.get('tag') and v.get('inferred_yolo_class')}
+    write_excel(str(excel_path), detections_per_page, pdf_path.stem, mark_details,
+                tag_class=tag_class)
 
     detections_json_path = out_dir / f"{pdf_path.stem}_detections.json"
     print(f"  Detections:     {detections_json_path}")
