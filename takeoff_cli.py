@@ -818,6 +818,18 @@ def main():
     cli_start = time.time()
     # Overall deadline; 0 (or negative) disables the budget.
     deadline = (cli_start + args.time_budget) if args.time_budget and args.time_budget > 0 else None
+    # Per-stage budgeting: detection runs first and, on a large plan, will happily
+    # eat the entire budget across dozens of pages — leaving tag inference already
+    # over-deadline so it gets skipped (the cause of 0-tagged large plans). We
+    # reserve a tagging tail, but ADAPTIVELY: sized to the detections actually
+    # found so far (~TAG_COST_PER_DET each, Level-2b bubble OCR), capped so
+    # detection always keeps at least half the budget. A plan with few detections
+    # reserves almost nothing (detection keeps ~full time — no recall regression);
+    # a detection-heavy plan reserves proportionally more. The reserved tail is
+    # recomputed each page from the running count. Tag inference still runs
+    # against the full `deadline`.
+    TAG_COST_PER_DET = 1.0          # seconds per detection, conservative for bubble OCR
+    TAG_RESERVE_CAP_FRAC = 0.5      # never reserve more than half the budget for tagging
 
     pdf_path = Path(args.pdf).resolve()
     if not pdf_path.exists():
@@ -929,11 +941,21 @@ def main():
     t_start = time.time()
     pages_done = 0
     for page_idx in pages_to_process:
-        if deadline is not None and time.time() > deadline:
+        # Adaptive detection deadline: reserve enough of the tail to tag what
+        # we've already found (capped at half the budget), so tag inference is
+        # never starved — but only as much as the current detection count needs.
+        detect_deadline = None
+        if deadline is not None:
+            n_dets = sum(len(v) for v in detections_per_page.values())
+            reserve = min(n_dets * TAG_COST_PER_DET, args.time_budget * TAG_RESERVE_CAP_FRAC)
+            detect_deadline = deadline - reserve
+        if detect_deadline is not None and time.time() > detect_deadline:
             remaining = len(pages_to_process) - pages_done
-            print(f"\n  [time] budget ({args.time_budget:.0f}s) reached — stopping after "
-                  f"{pages_done} page(s), skipping {remaining}. Writing partial output. "
-                  f"Re-run with --time-budget 0 or a subset via --pages for full coverage.")
+            n_dets = sum(len(v) for v in detections_per_page.values())
+            print(f"\n  [time] detection stopping after {pages_done} page(s), skipping "
+                  f"{remaining} — reserving ~{deadline - detect_deadline:.0f}s of the "
+                  f"{args.time_budget:.0f}s budget to tag {n_dets} detection(s). Writing partial "
+                  f"output. Re-run with --time-budget 0 or a subset via --pages for full coverage.")
             break
         pages_done += 1
         t0 = time.time()
@@ -944,7 +966,7 @@ def main():
             print(f"FAILED: {e}")
             continue
         print(f"detecting...", end=' ', flush=True)
-        dets = run_inference(model, img, conf=args.conf, deadline=deadline)
+        dets = run_inference(model, img, conf=args.conf, deadline=detect_deadline)
         elapsed = time.time() - t0
         print(f"{len(dets)} found ({elapsed:.0f}s)")
         if dets:
