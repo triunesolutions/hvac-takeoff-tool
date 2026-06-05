@@ -270,21 +270,6 @@ def build_class_to_tags(mark_details, schedules):
     return dict(class_tags)
 
 
-def build_class_to_tags_from_marks(marks, mark_details):
-    """
-    Simpler version: from parsed marks + details, infer class→tags.
-    Since schedule parser doesn't always know the PRODUCT class,
-    we group tags by their prefix pattern.
-    """
-    # Group by likely class
-    tag_groups = defaultdict(list)
-    for mark in marks:
-        details = mark_details.get(mark, {})
-        tag_groups[mark] = details
-
-    return tag_groups
-
-
 # ─── LEVEL 1: Direct class→tag mapping (from THIS project's schedule) ────────
 
 def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
@@ -632,7 +617,7 @@ def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
     return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': tagged}
 
 
-# ─── LEVEL 2C: CFM/size text matching (legacy fallback) ─────────────────────
+# ─── Text-layer helper (used by Level 2a fingerprint matching) ──────────────
 
 def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60):
     """
@@ -659,81 +644,6 @@ def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60):
             nearby.append(w[4])
 
     return nearby
-
-
-def find_size_cfm_in_text(texts):
-    """
-    Extract size and CFM values from nearby text.
-    Returns dict with found values.
-    """
-    result = {}
-
-    for text in texts:
-        t = text.strip().upper()
-
-        # CFM pattern: "260" or "260 CFM" or "260CFM"
-        cfm_match = re.match(r'^(\d{2,4})\s*(CFM|L/S)?$', t)
-        if cfm_match:
-            result['cfm'] = cfm_match.group(1)
-
-        # Size pattern: "8"" or "10"" or "22X22" or "24X12"
-        size_match = re.match(r'^(\d{1,3})"?$', t) or re.match(r'^(\d{1,3}[xX]\d{1,3})$', t)
-        if size_match:
-            result['size'] = size_match.group(1)
-
-        # Round duct: "8"Ø" or "10"Ø"
-        round_match = re.match(r'^(\d{1,3})"?[ØO]?$', t)
-        if round_match:
-            result['neck'] = round_match.group(1)
-
-    return result
-
-
-def level2_size_cfm_matching(detections, schedule_tags, mark_details, pdf_path, page_idx):
-    """
-    For untagged detections, read nearby CFM/size text and match to schedule.
-
-    Only attempts for detections that weren't tagged by Level 1.
-    """
-    if not mark_details:
-        return detections, {'level': 2, 'method': 'size_cfm', 'tagged': 0, 'total': 0}
-
-    # Build reverse index: any distinctive value → tag
-    value_to_tag = {}
-    for tag, details in mark_details.items():
-        for key, val in details.items():
-            val = str(val).strip().upper().replace('"', '').replace("'", '')
-            # Skip generic/empty values
-            if not val or val in ('.', '-', 'N/A', 'NONE', '') or len(val) > 30:
-                continue
-            # Skip common non-distinctive words
-            if val in ('SURFACE', 'LAY-IN', 'CEILING', 'SUPPLY', 'RETURN', 'YES', 'NO'):
-                continue
-            value_to_tag[val] = tag
-
-    tagged = 0
-    for det in detections:
-        if det.get('tag'):
-            continue  # Already tagged by Level 1
-
-        try:
-            nearby = extract_nearby_text(pdf_path, page_idx, det, radius_pts=80)
-        except:
-            continue
-
-        found = find_size_cfm_in_text(nearby)
-
-        # Try to match found values to a schedule tag
-        for key, val in found.items():
-            clean_val = val.upper().replace('"', '').replace("'", '')
-            if clean_val in value_to_tag:
-                det['tag'] = value_to_tag[clean_val]
-                det['tag_method'] = 'size_cfm'
-                det['tag_confidence'] = 0.7
-                tagged += 1
-                break
-
-    return detections, {'level': 2, 'method': 'size_cfm', 'tagged': tagged}
 
 
 # ─── LEVEL 3: Class counts fallback ─────────────────────────────────────────
@@ -825,15 +735,6 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
                 detections, class_to_tags, page_images[page_idx]
             )
             all_stats.append(stats2b)
-
-        # Level 2c: Legacy CFM/size matching — only when we have no
-        # variables. Lacks class filtering; cross-class matching risk.
-        untagged_count = sum(1 for d in detections if not d.get('tag'))
-        if untagged_count > 0 and mark_details and not variables:
-            detections, stats2 = level2_size_cfm_matching(
-                detections, marks, mark_details, pdf_path, page_idx
-            )
-            all_stats.append(stats2)
 
         # Level 3: Fallback
         detections, stats3 = level3_class_fallback(detections)
