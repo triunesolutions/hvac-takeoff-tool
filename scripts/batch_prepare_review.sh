@@ -23,7 +23,7 @@ run_one () {
   python takeoff_cli.py "$pdf" --model models/hvac_yolov8s_v10.pt --output-dir "$out" 2>&1 | tail -25
   echo
   echo "  → exporting to Label Studio ..."
-  python export_to_label_studio.py "$out_dir_name" 2>&1 | tail -8
+  python scripts/export_to_label_studio.py "$out_dir_name" 2>&1 | tail -8
   echo
 }
 

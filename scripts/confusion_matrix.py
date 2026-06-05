@@ -12,6 +12,9 @@ Usage:
     python confusion_matrix.py                       # Use default JSON
     python confusion_matrix.py path/to/data.json     # Custom JSON
 """
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')

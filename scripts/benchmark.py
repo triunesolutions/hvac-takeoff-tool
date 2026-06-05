@@ -7,6 +7,9 @@ Usage:
     python benchmark.py --model models/hvac_yolov8s_v4.pt # Use different model
     python benchmark.py --conf 0.5                         # Confidence threshold
 """
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')

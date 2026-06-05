@@ -22,6 +22,9 @@ Usage:
   python build_v11_dataset.py                # full build
   python build_v11_dataset.py --dry-run      # plan only, no writes
 """
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stdout.reconfigure(line_buffering=True)

@@ -13,7 +13,11 @@ Skipped:
 
 Re-runnable: existing target dirs are reused; pdfs are copied only if missing.
 """
+
 from __future__ import annotations
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 
 import re
 import shutil

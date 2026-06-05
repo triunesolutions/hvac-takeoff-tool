@@ -1,4 +1,7 @@
 """Test schedule parser on small projects only (< 10 MB PDFs)."""
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import os
 from schedule_parser import parse_pdf_schedules
 import openpyxl

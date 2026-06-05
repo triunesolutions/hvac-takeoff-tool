@@ -8,6 +8,9 @@ Usage:
     python train_yolo.py --projects 01 02 03 04 08  # Train on specific projects
     python train_yolo.py --resume           # Resume interrupted training
 """
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')

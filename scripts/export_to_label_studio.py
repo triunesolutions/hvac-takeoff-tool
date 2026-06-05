@@ -15,6 +15,9 @@ Usage:
   python export_to_label_studio.py "4.15.26 Sola Salons"
   python export_to_label_studio.py "4.15.26 Sola Salons" --ls-project-name "Sola Review"
 """
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root on path (moved into scripts/)
 import argparse
 import base64
 import json
