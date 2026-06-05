@@ -62,6 +62,21 @@ yolo_tag_dataset/
 # Per-run benchmark outputs (per-project takeoff dirs are large, regeneratable)
 benchmark_output/
 benchmark_output_*/
+benchmark_*/
+bench_*.log
+*_output/
+_smoke_*/
+text_based_*output/
+annotated_compare/
+
+# Abandoned Paddle / OCR-finetune subsystem (do not reintroduce)
+.venv-paddle/
+ocr_finetune/
+ocr_finetune.zip
+models/rec_ppocr_v4_hvac/
+
+# Caches anywhere in the tree
+**/__pycache__/
 
 # OCR labeling sample/log artifacts (regeneratable; full results go in tag_bubble_labels.jsonl)
 tag_bubble_labels.log
