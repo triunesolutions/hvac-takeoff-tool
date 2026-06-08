@@ -21,11 +21,21 @@ _easyocr_reader = None
 
 
 def get_ocr_reader():
-    """Lazy-init EasyOCR (loads ~100MB model on first call)."""
+    """Lazy-init EasyOCR (loads ~100MB model on first call).
+
+    Auto-uses the GPU when CUDA is available (Kaggle/Colab T4) — EasyOCR is the
+    pipeline's heaviest stage, so this is the bulk of the cloud speedup. Falls
+    back to CPU locally (cuda.is_available() is False), so behaviour is unchanged
+    on a CPU-only machine."""
     global _easyocr_reader
     if _easyocr_reader is None:
         import easyocr
-        _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        try:
+            import torch
+            use_gpu = bool(torch.cuda.is_available())
+        except Exception:
+            use_gpu = False
+        _easyocr_reader = easyocr.Reader(['en'], gpu=use_gpu, verbose=False)
     return _easyocr_reader
 
 
