@@ -94,7 +94,35 @@ def run_one(pdf: Path, out_root: Path, model: str, conf: float, time_budget, out
         status = "crashed"
         err_tail = str(e)[:300]
     runtime = time.time() - t0
-    return compute_metrics(pdf, out_dir, status, runtime, err_tail)
+    result = compute_metrics(pdf, out_dir, status, runtime, err_tail)
+    # Checkpoint: drop a _done.json marker so --resume can skip this project
+    # instantly on a later restart (and so we never re-run completed work).
+    try:
+        with open(out_dir / "_done.json", "w", encoding="utf-8") as f:
+            json.dump(result, f)
+    except Exception:
+        pass
+    return result
+
+
+def _run_complete(out_dir: Path):
+    """For resuming a run started BEFORE checkpoints existed: detect completion
+    from takeoff_cli's own _run.log terminal banner. Returns (done, status)."""
+    done = out_dir / "_done.json"
+    if done.exists():
+        return True, None                       # caller loads the cached row
+    log = out_dir / "_run.log"
+    if not log.exists():
+        return False, None
+    try:
+        txt = log.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False, None
+    if "to see the results" in txt:             # success banner
+        return True, "ok"
+    if "No HVAC equipment detected" in txt:      # ran clean, 0 detections
+        return True, "no_xlsx"
+    return False, None                           # interrupted mid-run → re-run it
 
 
 def compute_metrics(pdf: Path, out_dir: Path, status: str, runtime, err_tail=""):
@@ -230,6 +258,9 @@ def main():
     ap.add_argument("--recursive", action="store_true",
                     help="Treat --input as a folder of PROJECT subfolders; pick one plan "
                          "PDF per project (logged to plan_selection.csv).")
+    ap.add_argument("--resume", action="store_true",
+                    help="Skip projects already finished (via _done.json checkpoint or a "
+                         "completed _run.log). Lets a stopped/crashed run continue where it left off.")
     args = ap.parse_args()
 
     in_dir = (REPO / args.input).resolve() if not os.path.isabs(args.input) else Path(args.input)
@@ -253,9 +284,46 @@ def main():
         print(f"Batch over {len(work)} plan(s) from {in_dir}", flush=True)
     print(f"Output → {out_root}", flush=True)
 
+    # For --resume: pull runtimes/statuses of prior completed projects from the
+    # existing results CSV so resumed rows keep their numbers.
+    prior_rt, prior_st = {}, {}
+    if args.resume:
+        import csv as _csv
+        cp = out_root / "batch_results.csv"
+        if cp.exists():
+            for row in _csv.DictReader(open(cp, encoding="utf-8")):
+                key = row.get("project") or row.get("plan")
+                prior_rt[key] = float(row["runtime_s"]) if row.get("runtime_s") not in (None, "", "None") else None
+                prior_st[key] = row.get("status", "ok")
+
     results = []
     batch_t0 = time.time()
+    n_skipped = 0
     for i, (label, pdf) in enumerate(work, 1):
+        out_dir = out_root / label
+        if args.resume:
+            done, log_status = _run_complete(out_dir)
+            if done:
+                done_json = out_dir / "_done.json"
+                if done_json.exists():
+                    r = _load_json(done_json)
+                else:                              # finished by a pre-checkpoint run
+                    r = compute_metrics(pdf, out_dir, log_status or prior_st.get(label, "ok"),
+                                        prior_rt.get(label))
+                    r["project"] = label
+                    try:
+                        with open(done_json, "w", encoding="utf-8") as f:
+                            json.dump(r, f)        # backfill checkpoint
+                    except Exception:
+                        pass
+                if r:
+                    r.setdefault("project", label)
+                    results.append(r)
+                    n_skipped += 1
+                    print(f"[{i}/{len(work)}] {label}  — SKIP (already done)", flush=True)
+                    write_report(results, out_root, batch_t0, len(work))
+                    continue
+
         print(f"\n[{i}/{len(work)}] {label}  ({pdf.name}, {pdf.stat().st_size/1048576:.1f} MB) ...",
               flush=True)
         r = run_one(pdf, out_root, args.model, args.conf, args.time_budget, out_name=label)
@@ -267,7 +335,8 @@ def main():
         # Write the report after EVERY plan so partial progress survives a crash.
         write_report(results, out_root, batch_t0, len(work))
 
-    print(f"\nBatch done in {time.time()-batch_t0:.0f}s. Report: "
+    print(f"\nBatch done in {time.time()-batch_t0:.0f}s "
+          f"({n_skipped} skipped via resume, {len(work)-n_skipped} run). Report: "
           f"{out_root / 'batch_report.md'}", flush=True)
 
 
