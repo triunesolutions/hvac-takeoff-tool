@@ -69,6 +69,10 @@ _smoke_*/
 text_based_*output/
 annotated_compare/
 
+# Batch end-to-end run outputs (regeneratable; report lives inside)
+batch_*/
+batch_*_console.log
+
 # Abandoned Paddle / OCR-finetune subsystem (do not reintroduce)
 .venv-paddle/
 ocr_finetune/
