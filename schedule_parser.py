@@ -15,6 +15,7 @@ Usage:
 """
 import os
 import re
+import time
 from collections import defaultdict
 import pdfplumber
 
@@ -702,6 +703,8 @@ def get_mark_type(mark):
 # against. (Full per-tag property reconstruction from OCR is a later step.)
 
 OCR_FALLBACK_MIN_TAGS = 3  # below this, assume the text layer failed → try OCR
+OCR_FALLBACK_MIN_BUDGET = 15.0  # don't start the OCR fallback with less than this
+                                # many seconds left — better to keep detection's slice
 
 _SCHED_KW = ('SCHEDULE', 'CFM', 'NECK', 'MODEL', 'GRILLE', 'DIFFUSER',
              'REGISTER', 'MANUFACTURER', 'MOUNTING', 'MBH', 'TONS', 'TYPE')
@@ -759,15 +762,23 @@ def _ocr_tag_from_token(token):
     return None             # bare non-air-device → almost certainly OCR noise
 
 
-def extract_marks_via_ocr(pdf_path, time_budget=None, dpi=150, max_pages=8):
+def extract_marks_via_ocr(pdf_path, time_budget=None, dpi=150, max_pages=8, max_side=2600):
     """Render pages and OCR them to recover schedule tags when the text layer is
     empty (vector/CAD schedules). Returns (marks, variables). Variables carry
     tag + inferred class but EMPTY properties — the tag list alone unblocks tag
-    inference. Bounded by time_budget (wall-clock seconds) and max_pages."""
+    inference. Bounded by time_budget (wall-clock seconds) and max_pages.
+
+    max_side caps the rendered page's longest dimension (px) before OCR. A 36"
+    sheet at 150 DPI is ~5400 px wide; EasyOCR on CPU then takes minutes for a
+    single page — and the budget is only checked between pages, so one runaway
+    page can blow the entire run budget (starving detection to zero). Downscaling
+    to ~2600 px bounds per-page cost to seconds while keeping schedule-table text
+    legible. Set max_side=0 to disable."""
     import time as _time
     try:
         import fitz
         import numpy as np
+        import cv2
     except Exception:
         return [], []
     try:
@@ -790,6 +801,14 @@ def extract_marks_via_ocr(pdf_path, time_budget=None, dpi=150, max_pages=8):
                 pix.height, pix.width, pix.n)
             if pix.n == 4:
                 img = img[:, :, :3]
+            # Bound per-page OCR cost: downscale large-format sheets so a single
+            # EasyOCR call can't run past the budget (checked only between pages).
+            if max_side:
+                longest = max(img.shape[0], img.shape[1])
+                if longest > max_side:
+                    scale = max_side / longest
+                    img = cv2.resize(img, None, fx=scale, fy=scale,
+                                     interpolation=cv2.INTER_AREA)
         except Exception:
             continue
         if reader is None:
@@ -838,6 +857,9 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
 
     # Split the scan budget: schedules (the costly extract_tables loop) get the
     # bulk, legend gets a smaller slice so both stay bounded on large plans.
+    # All three sub-scans (tables, legend, OCR fallback) share the ONE schedule
+    # budget against a single start time — see the OCR fallback below.
+    _sched_t0 = time.time()
     sched_tb = (time_budget * 0.8) if time_budget else None
     legend_tb = (time_budget * 0.2) if time_budget else None
     schedules, marks, mark_details, variables = extract_schedules_and_marks(
@@ -851,7 +873,20 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
     # text-layer projects pay zero cost and can't regress.
     used_ocr_fallback = False
     if len(variables) < OCR_FALLBACK_MIN_TAGS:
-        ocr_marks, ocr_vars = extract_marks_via_ocr(pdf_path, time_budget=sched_tb)
+        # Give OCR only the time LEFT in the schedule budget — NOT a fresh slice.
+        # Previously this passed sched_tb again, so the schedule phase could spend
+        # 0.8x (tables) + 0.2x (legend) + 0.8x (OCR) and a single uninterruptible
+        # EasyOCR page would blow the whole run deadline, starving detection to 0.
+        if time_budget is not None:
+            ocr_tb = time_budget - (time.time() - _sched_t0)
+        else:
+            ocr_tb = None
+        if ocr_tb is None or ocr_tb >= OCR_FALLBACK_MIN_BUDGET:
+            ocr_marks, ocr_vars = extract_marks_via_ocr(pdf_path, time_budget=ocr_tb)
+        else:
+            print(f"  [schedule-ocr] skipped — only {ocr_tb:.0f}s left in schedule "
+                  f"budget (< {OCR_FALLBACK_MIN_BUDGET:.0f}s), preserving detection time")
+            ocr_vars = []
         if ocr_vars:
             used_ocr_fallback = True
             existing = set(marks)
