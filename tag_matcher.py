@@ -46,6 +46,34 @@ def _normalize_for_match(s):
     return re.sub(r'[^A-Z0-9]', '', str(s).upper())
 
 
+# Restrict OCR to tag-relevant characters — cuts noise tokens on busy crops.
+_TAG_ALLOWLIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-'
+
+
+def preprocess_crop_for_ocr(crop, upscale=3.0, binarize=True):
+    """Upscale + Otsu-binarize a small crop to maximize OCR recall on tiny tag
+    bubbles. Ports the preprocessing proven in label_tag_bubbles_ocr.py (3x
+    upscale + Otsu lifted the bubble-labeling hit rate past plain upscaling),
+    using OpenCV's built-in Otsu rather than the hand-rolled histogram loop.
+
+    Returns (processed_bgr_image, effective_scale). effective_scale is the total
+    pixel scaling applied, so callers that read OCR bbox coords off the processed
+    crop can divide by it to get back to original-crop pixels.
+    """
+    import cv2
+    if crop is None or getattr(crop, 'size', 0) == 0:
+        return crop, 1.0
+    scale = float(upscale) if upscale else 1.0
+    if scale != 1.0:
+        crop = cv2.resize(crop, None, fx=scale, fy=scale,
+                          interpolation=cv2.INTER_CUBIC)
+    if not binarize:
+        return crop, scale
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    return cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR), scale
+
+
 _bubble_model = None
 
 
@@ -108,12 +136,14 @@ def detect_bubbles_on_page(img, conf=0.25, tile=320, overlap=80):
     return keep
 
 
-def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
-    """OCR the tight crop for each bubble bbox (with small padding + upscale).
-    Returns each bubble enriched with {'text', 'ocr_conf'}."""
+def ocr_bubble_crops(img, bubbles, pad=12, upscale=3.0, conf_threshold=0.2,
+                     binarize=True):
+    """OCR the tight crop for each bubble bbox (with small padding + upscale +
+    Otsu binarize). Returns each bubble enriched with {'text', 'ocr_conf'}.
+    Coords come from the bubble bbox (page space), so the preprocessing only
+    affects the read text, not positions."""
     if not bubbles:
         return bubbles
-    import cv2
     reader = get_ocr_reader()
     out = []
     h, w = img.shape[:2]
@@ -125,13 +155,11 @@ def ocr_bubble_crops(img, bubbles, pad=12, upscale=2.0, conf_threshold=0.2):
         crop = img[y1:y2, x1:x2]
         if crop.size == 0:
             continue
-        if upscale != 1.0:
-            crop = cv2.resize(crop, None, fx=upscale, fy=upscale,
-                              interpolation=cv2.INTER_CUBIC)
+        crop, _ = preprocess_crop_for_ocr(crop, upscale=upscale, binarize=binarize)
         try:
             results = reader.readtext(
                 crop,
-                allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
+                allowlist=_TAG_ALLOWLIST,
                 text_threshold=0.4, low_text=0.2,
             )
         except Exception:
@@ -235,14 +263,22 @@ def ocr_near_detection(img, det, crop_size=180, conf_threshold=0.3):
     if crop.size == 0:
         return []
 
-    results = reader.readtext(crop)
+    # Upscale + Otsu-binarize before OCR (WS1.4) — single-char tags inside small
+    # bubbles are the dominant miss; this is the same preprocessing proven on the
+    # bubble-labeling corpus. The allowlist drops noise tokens.
+    proc, scale = preprocess_crop_for_ocr(crop, upscale=3.0, binarize=True)
+    try:
+        results = reader.readtext(proc, allowlist=_TAG_ALLOWLIST)
+    except Exception:
+        return []
     words = []
     for bbox, text, conf in results:
         if conf < conf_threshold:
             continue
-        xs = [p[0] for p in bbox]
-        ys = [p[1] for p in bbox]
-        # Translate back to page coords
+        # bbox coords are in upscaled-crop space → divide by scale, then offset
+        # back into the original page coordinate system.
+        xs = [p[0] / scale for p in bbox]
+        ys = [p[1] / scale for p in bbox]
         words.append({
             'text': text.strip(),
             'cx': (min(xs) + max(xs)) / 2 + x1,
