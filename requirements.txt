@@ -8,3 +8,6 @@ openpyxl
 easyocr
 ultralytics
 pdfplumber
+# Used by the training / Label-Studio scripts under scripts/
+requests
+PyYAML

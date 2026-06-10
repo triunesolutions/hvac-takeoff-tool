@@ -82,6 +82,10 @@ models/rec_ppocr_v4_hvac/
 # Caches anywhere in the tree
 **/__pycache__/
 
+# Claude Code session transcripts — large (MBs), regeneratable, not source.
+# Keep .claude/memory/ (small, hand-curated) tracked.
+.claude/sessions/
+
 # OCR labeling sample/log artifacts (regeneratable; full results go in tag_bubble_labels.jsonl)
 tag_bubble_labels.log
 tag_bubble_sample*.jsonl
