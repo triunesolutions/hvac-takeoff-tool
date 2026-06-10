@@ -107,6 +107,31 @@ YOLO_CLASS_ALIASES = {
 }
 
 
+# WS1.2 — symmetric class families. A YOLO detection of any member can match
+# schedule tags filed under any sibling. The exact-match `class_to_tags` lookup
+# silently empties the candidate list when YOLO and the schedule disagree on a
+# name (FAN vs EXHAUST FAN, SPLIT SYSTEM vs CONDENSING UNIT) — the leading cause
+# of "tags + detections present but 0 tagged". Kept deliberately TIGHT: only the
+# naming splits the review docs flagged. Over-broad families trade recall for
+# mis-tags, so distinct products (AHU/RTU/FCU, HEAT PUMP) are NOT lumped, and the
+# AD-* diffuser family is intentionally excluded here — it stays on its existing
+# bubble-disambiguation path (YOLO_CLASS_ALIASES list form), which is precision-
+# tuned and must not be perturbed.
+CLASS_FAMILIES = [
+    {'FAN', 'EXHAUST FAN', 'VENT CAP'},
+    {'CONDENSING UNIT', 'SPLIT SYSTEM'},
+    {'MOTORIZED DAMPER', 'MANUAL VOLUME DAMPER'},
+]
+
+
+def _family_siblings(cls):
+    """The class-family set containing `cls`, or just {cls} if it's in none."""
+    for fam in CLASS_FAMILIES:
+        if cls in fam:
+            return fam
+    return {cls}
+
+
 def _expand_class_for_bubble(yolo_class, class_to_tags):
     """Return list of class keys whose tags should be considered for a bubble
     detection of this YOLO class. Used by Level 2b' (bubble_detect) where the
@@ -121,6 +146,12 @@ def _expand_class_for_bubble(yolo_class, class_to_tags):
                 candidates.append(a)
     elif alias and alias in class_to_tags and alias not in candidates:
         candidates.append(alias)
+    # WS1.2: also offer same-family siblings — bubble OCR reads the tag text, so
+    # it can safely disambiguate (e.g. a YOLO 'FAN' detection matching an EF-*
+    # tag filed under EXHAUST FAN).
+    for c in _family_siblings(yolo_class):
+        if c in class_to_tags and c not in candidates:
+            candidates.append(c)
     return candidates
 
 
@@ -129,15 +160,24 @@ def _resolve_class(yolo_class, class_to_tags):
     Look up a YOLO class in class_to_tags, trying direct match first then
     aliases. Returns the key under which the class's tags live.
     """
-    if yolo_class in class_to_tags:
+    if class_to_tags.get(yolo_class):
         return yolo_class
     alias = YOLO_CLASS_ALIASES.get(yolo_class)
     # List-form aliases mean "ambiguous between these candidates" — only the
     # bubble-OCR level can disambiguate. Bail here so Level 1 doesn't pick one.
     if isinstance(alias, list):
         return None
-    if alias and alias in class_to_tags:
+    if alias and class_to_tags.get(alias):
         return alias
+    # WS1.2 family fallback: if this class's own name has no tags but exactly ONE
+    # sibling in its family does, the match is unambiguous → resolve to it. If
+    # zero or 2+ siblings have tags it's ambiguous, so bail (None) and let the
+    # bubble-OCR levels disambiguate rather than risk auto-assigning the wrong one.
+    fam = _family_siblings(yolo_class)
+    if len(fam) > 1:
+        with_tags = [c for c in fam if class_to_tags.get(c)]
+        if len(with_tags) == 1:
+            return with_tags[0]
     return None
 
 
@@ -301,12 +341,11 @@ def level1_direct_mapping(detections, schedule_tags, class_to_tags=None):
     tagged = 0
     for det in detections:
         cls = det.get('cls', '')
-        if cls in auto_map:
-            resolved = cls
-        else:
-            alias = YOLO_CLASS_ALIASES.get(cls)
-            # Skip list-form aliases — those mean "ambiguous, needs bubble OCR".
-            resolved = alias if isinstance(alias, str) else None
+        # Resolve through the shared logic (direct → scalar alias → unambiguous
+        # family sibling). List-form aliases return None (ambiguous → bubble OCR).
+        # The auto_map membership check below still requires the resolved class to
+        # have exactly one tag, so a family resolve can't mis-assign.
+        resolved = _resolve_class(cls, class_to_tags or {})
         if resolved and resolved in auto_map:
             det['tag'] = auto_map[resolved]
             det['tag_method'] = 'direct'
