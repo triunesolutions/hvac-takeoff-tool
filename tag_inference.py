@@ -694,6 +694,62 @@ def level3_class_fallback(detections):
     return detections, {'level': 3, 'method': 'class_fallback', 'untagged': untagged}
 
 
+# ─── DIAGNOSTICS (WS1.1 — instrument before fixing) ─────────────────────────
+
+def _candidate_tags_for_class(cls, class_to_tags):
+    """Every schedule tag that COULD match a detection of this YOLO class,
+    following the same alias resolution the tagging levels use: direct match,
+    scalar alias (_resolve_class), and list/reverse bubble aliases
+    (_expand_class_for_bubble). Returns a set of tag strings — empty means this
+    detection's class is "candidate-starved": no schedule tag can ever match it,
+    so no level can fire regardless of OCR or distance.
+    """
+    cands = set()
+    resolved = _resolve_class(cls, class_to_tags or {})
+    if resolved:
+        cands.update((class_to_tags.get(resolved) or {}).keys())
+    for cc in _expand_class_for_bubble(cls, class_to_tags or {}):
+        cands.update((class_to_tags.get(cc) or {}).keys())
+    return cands
+
+
+def compute_tagging_diagnostics(detections_per_page, class_to_tags):
+    """Classify every detection so the dominant cause of low tagging is
+    measurable instead of guessed. Mutates each UNTAGGED detection with an
+    'untagged_reason':
+      - 'no_candidate_tags'        → its class (incl. aliases) has zero schedule
+                                      tags. Fix = class-equivalence (WS1.2).
+      - 'has_candidates_unmatched' → candidates existed but no level assigned one.
+                                      Fix = OCR/distance (WS1.3/1.4).
+    Returns aggregate counts overall and per YOLO class.
+    """
+    from collections import defaultdict
+    blank = lambda: {'total': 0, 'tagged': 0,
+                     'untagged_no_candidates': 0, 'untagged_has_candidates': 0}
+    totals = blank()
+    by_class = defaultdict(blank)
+    for dets in detections_per_page.values():
+        for d in dets:
+            cls = d.get('original_yolo_cls', d.get('cls', ''))
+            row = by_class[cls]
+            row['total'] += 1
+            totals['total'] += 1
+            if d.get('tag'):
+                row['tagged'] += 1
+                totals['tagged'] += 1
+                continue
+            has_cands = bool(_candidate_tags_for_class(cls, class_to_tags))
+            if has_cands:
+                d['untagged_reason'] = 'has_candidates_unmatched'
+                row['untagged_has_candidates'] += 1
+                totals['untagged_has_candidates'] += 1
+            else:
+                d['untagged_reason'] = 'no_candidate_tags'
+                row['untagged_no_candidates'] += 1
+                totals['untagged_no_candidates'] += 1
+    return {'totals': totals, 'by_class': dict(by_class)}
+
+
 # ─── MAIN ENTRY POINT ───────────────────────────────────────────────────────
 
 def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
@@ -777,11 +833,16 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
     tagged = sum(1 for dets in detections_per_page.values()
                  for d in dets if d.get('tag'))
 
+    # WS1.1: classify every untagged detection so we know WHY it's untagged —
+    # candidate-starved (class has no schedule tags) vs had-candidates-but-missed.
+    diagnostics = compute_tagging_diagnostics(detections_per_page, class_to_tags)
+
     return detections_per_page, {
         'total': total,
         'tagged': tagged,
         'tagged_pct': tagged / max(total, 1) * 100,
         'levels': all_stats,
+        'diagnostics': diagnostics,
     }
 
 

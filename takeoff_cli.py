@@ -1009,6 +1009,22 @@ def main():
         for ls in tag_stats.get('levels', []):
             if ls.get('tagged', 0) > 0 or ls.get('mapping'):
                 print(f"  Level {ls.get('level', '?')}: {ls.get('method', '')} — {ls}")
+        # WS1.1 diagnostic funnel — WHY detections went untagged. 'no_candidate'
+        # = the detection's class has no schedule tag to match (class-equivalence
+        # gap); 'unmatched' = candidates existed but OCR/distance missed.
+        diag = tag_stats.get('diagnostics', {}).get('totals', {})
+        if diag:
+            no_cand = diag.get('untagged_no_candidates', 0)
+            unmatched = diag.get('untagged_has_candidates', 0)
+            print(f"  Untagged breakdown: {no_cand} no-candidate-tags (class gap) + "
+                  f"{unmatched} had-candidates-unmatched (OCR/distance)")
+            by_cls = tag_stats.get('diagnostics', {}).get('by_class', {})
+            starved = sorted(((c, s['untagged_no_candidates']) for c, s in by_cls.items()
+                              if s['untagged_no_candidates'] > 0),
+                             key=lambda x: -x[1])[:5]
+            if starved:
+                print("    top candidate-starved classes: "
+                      + ", ".join(f"{c}×{n}" for c, n in starved))
     print()
 
     # Aggregate
@@ -1067,12 +1083,21 @@ def main():
     det_dump = {
         'pdf': str(pdf_path),
         'dpi': DPI,
+        # WS1.1 per-stage funnel + untagged-reason breakdown so every batch run
+        # is diagnosable per stage (schedule tags → detections → tagged → why-not).
+        'funnel': {
+            'schedule_tags': len(marks),
+            'detections': total_count,
+            'tagged': tagged,
+        },
+        'tag_diagnostics': (tag_stats.get('diagnostics') if detections_per_page else None),
         'pages': {
             str(page_idx): [
                 {
                     'cls': d['cls'],
                     'tag': d.get('tag'),
                     'tag_method': d.get('tag_method'),
+                    'untagged_reason': d.get('untagged_reason'),
                     'conf': d.get('conf'),
                     'x1': d['x1'], 'y1': d['y1'], 'x2': d['x2'], 'y2': d['y2'],
                 }
