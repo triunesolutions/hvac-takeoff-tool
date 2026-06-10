@@ -95,7 +95,19 @@ aliasing for tag lookup (already partially built in `class_aliases.py` /
    Anaheim 82, Skytron, Free People) — likely OCR-fallback token filters
    (`_ocr_tag_from_token`) being too strict, or fragmented/horizontal tables.
 3. **Single-letter tags in the headerless fallback** (`schedule_parser.py:523-530`)
-   — the tag-shape regex rejects bare `A`/`B` marks that `normalize_tag` accepts.
+   — ✅ **DONE** (2026-06-10): the fallback now accepts bare `A`/`B` marks that
+   `normalize_tag` accepts.
+4. **Generic-GRD service inference steals fan/equipment tags** — discovered via
+   WS1.1 instrumentation on Circle K Olmito (20 schedule tags, 8 detections, **all
+   8 candidate-starved**). `_infer_yolo_class_from_service` lists `'EXHAUST'` in
+   its generic-diffuser keyword set, so a fan-schedule row with SERVICE="EXHAUST"
+   returns `AD-GRD` and pre-empts the correct `EF/KEF → EXHAUST FAN` tag-prefix
+   logic. Fan tags land under `AD-GRD`, so no FAN/EXHAUST FAN detection can ever
+   match them. Fix candidate: when service inference yields the *generic* `AD-GRD`
+   but the row's tag prefix maps to a *specific* equipment class (FAN, EXHAUST
+   FAN, RTU, …), prefer the tag prefix. This is a core class-inference priority
+   change — validate on `benchmark_samples.py` + the batch before shipping (it
+   can shift many projects' classifications). Likely a bigger lever than WS1.4.
 
 ### WS3 — Page selection (cheap; unblocks the tags-but-no-detections cluster)
 
