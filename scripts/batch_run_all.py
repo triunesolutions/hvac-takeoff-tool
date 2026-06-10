@@ -130,7 +130,8 @@ def compute_metrics(pdf: Path, out_dir: Path, status: str, runtime, err_tail="")
     live (run_one) and in --report-only regeneration."""
     stem = pdf.stem
     variables = _load_json(out_dir / f"{stem}_variables.json") or []
-    dets = _flatten_detections(_load_json(out_dir / f"{stem}_detections.json"))
+    det_data = _load_json(out_dir / f"{stem}_detections.json")
+    dets = _flatten_detections(det_data)
     xlsx = out_dir / f"{stem}_takeoff.xlsx"
     annotated = out_dir / f"{stem}_annotated.pdf"
 
@@ -139,6 +140,19 @@ def compute_metrics(pdf: Path, out_dir: Path, status: str, runtime, err_tail="")
     n_tagged = sum(1 for d in dets if d.get("tag"))
     tagged_pct = round(100.0 * n_tagged / n_det, 1) if n_det else 0.0
     distinct_tags = sorted({d.get("tag") for d in dets if d.get("tag")})
+
+    # WS1.1 instrumentation: split untagged into class-starved (no schedule tag
+    # can match its class → WS1.2 territory) vs had-candidates-but-missed
+    # (OCR/distance → WS1.3/1.4). Prefer the tag_diagnostics block takeoff_cli
+    # writes; fall back to aggregating per-detection untagged_reason.
+    diag = det_data.get("tag_diagnostics") if isinstance(det_data, dict) else None
+    if isinstance(diag, dict) and isinstance(diag.get("totals"), dict):
+        t = diag["totals"]
+        untag_no_cand = int(t.get("untagged_no_candidates", 0))
+        untag_unmatched = int(t.get("untagged_has_candidates", 0))
+    else:
+        untag_no_cand = sum(1 for d in dets if d.get("untagged_reason") == "no_candidate_tags")
+        untag_unmatched = sum(1 for d in dets if d.get("untagged_reason") == "has_candidates_unmatched")
 
     if status == "ok" and not xlsx.exists():
         status = "no_xlsx"          # ran clean but produced no takeoff (0 detections)
@@ -151,6 +165,8 @@ def compute_metrics(pdf: Path, out_dir: Path, status: str, runtime, err_tail="")
         "detections": n_det,
         "tagged": n_tagged,
         "tagged_pct": tagged_pct,
+        "untag_no_cand": untag_no_cand,
+        "untag_unmatched": untag_unmatched,
         "distinct_tags": len(distinct_tags),
         "xlsx": xlsx.exists(),
         "annotated": annotated.exists(),
@@ -346,7 +362,8 @@ def write_report(results, out_root, batch_t0, total):
     has_proj = any(r.get("project") for r in results)
     cols = (["project"] if has_proj else []) + [
             "plan", "size_mb", "status", "sched_tags", "detections", "tagged",
-            "tagged_pct", "distinct_tags", "xlsx", "annotated", "runtime_s"]
+            "tagged_pct", "untag_no_cand", "untag_unmatched", "distinct_tags",
+            "xlsx", "annotated", "runtime_s"]
     with open(out_root / "batch_results.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
@@ -361,6 +378,14 @@ def write_report(results, out_root, batch_t0, total):
     tot_det = sum(r["detections"] for r in results)
     tot_tag = sum(r["tagged"] for r in results)
     overall_pct = round(100.0 * tot_tag / tot_det, 1) if tot_det else 0.0
+    # WS1.1 funnel: where the untagged detections go. no_cand = class-equivalence
+    # gap (WS1.2/WS2.4); unmatched = OCR/distance (WS1.3/WS1.4). This split is the
+    # verdict on which lever actually moves the batch.
+    tot_no_cand = sum(r.get("untag_no_cand", 0) for r in results)
+    tot_unmatched = sum(r.get("untag_unmatched", 0) for r in results)
+    tot_untagged = tot_det - tot_tag
+    no_cand_pct = round(100.0 * tot_no_cand / tot_untagged, 1) if tot_untagged else 0.0
+    unmatched_pct = round(100.0 * tot_unmatched / tot_untagged, 1) if tot_untagged else 0.0
     ts = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
 
     lines = []
@@ -374,16 +399,20 @@ def write_report(results, out_root, batch_t0, total):
     lines.append(f"- **Crashed / nonzero exit:** {crashed}")
     lines.append(f"- **Total detections:** {tot_det}  ·  **Tagged:** {tot_tag} "
                  f"({overall_pct}% overall)")
+    lines.append(f"- **Untagged breakdown:** {tot_untagged} untagged = "
+                 f"{tot_no_cand} no-candidate-tags ({no_cand_pct}%, class gap → WS1.2/WS2.4) + "
+                 f"{tot_unmatched} had-candidates-unmatched ({unmatched_pct}%, OCR/distance → WS1.3/WS1.4)")
     lines.append("")
     label_hdr = "Project" if has_proj else "Plan"
-    lines.append(f"| {label_hdr} | MB | Status | Sched tags | Detections | Tagged | % | xlsx | Runtime |")
-    lines.append("|---|--:|---|--:|--:|--:|--:|:--:|--:|")
+    lines.append(f"| {label_hdr} | MB | Status | Sched tags | Detections | Tagged | % | NoCand | Unmatch | xlsx | Runtime |")
+    lines.append("|---|--:|---|--:|--:|--:|--:|--:|--:|:--:|--:|")
     for r in results:
         x = "✅" if r["xlsx"] else "—"
         label = r.get("project") or r["plan"]
         lines.append(f"| {label} | {r['size_mb']} | {r['status']} | "
                      f"{r['sched_tags']} | {r['detections']} | {r['tagged']} | "
-                     f"{r['tagged_pct']} | {x} | {r['runtime_s']}s |")
+                     f"{r['tagged_pct']} | {r.get('untag_no_cand', 0)} | "
+                     f"{r.get('untag_unmatched', 0)} | {x} | {r['runtime_s']}s |")
     lines.append("")
     lines.append("## Per-plan sample tags")
     lines.append("")
