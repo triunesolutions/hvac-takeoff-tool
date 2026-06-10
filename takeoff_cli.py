@@ -29,14 +29,16 @@ import cv2
 import numpy as np
 
 from tag_extractor import summarize_detections_by_tag
-from tag_inference import infer_tags
+from tag_inference import infer_tags, RENDER_DPI
 from schedule_parser import parse_pdf_schedules, dump_variables
 
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL = 'models/hvac_yolov8s_v10.pt'
-DPI = 200
+# Single source of truth — shared with tag_inference so the render DPI and the
+# pixel→point coord math in extract_nearby_text can never drift apart.
+DPI = RENDER_DPI
 TILE_SIZE = 640
 TILE_OVERLAP = 100
 NMS_DIST = 50
@@ -580,6 +582,30 @@ def _prop(details, keywords):
     return ''
 
 
+def _split_brand_model(combined):
+    """Split a combined 'MANUFACTURER & MODEL' string into (brand, model).
+
+    Model numbers carry digits; brand names usually don't — so the model is
+    taken to start at the first token containing a digit, and the brand is
+    everything before it. This keeps multi-word brands intact
+    ('UNITED COOLAIR ABG-100' -> 'UNITED COOLAIR' / 'ABG-100') instead of the
+    old naive split on the FIRST space ('UNITED' / 'COOLAIR ABG-100').
+    A ' / ' delimiter (MAKE / MODEL convention) takes precedence; if no token
+    looks like a model number, the whole string is treated as the brand.
+    """
+    combined = ' '.join(str(combined or '').split())
+    if not combined:
+        return '', ''
+    if ' / ' in combined:
+        brand, model = combined.split(' / ', 1)
+        return brand.strip(), model.strip()
+    tokens = combined.split(' ')
+    for i, tok in enumerate(tokens):
+        if i > 0 and re.search(r'\d', tok):
+            return ' '.join(tokens[:i]).strip(), ' '.join(tokens[i:]).strip()
+    return combined, ''
+
+
 def write_excel(output_path, detections_per_page, project_name, schedule_details=None,
                 tag_class=None):
     """Write Excel takeoff matching team's format.
@@ -651,12 +677,8 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
         # Prefer a combined column like "MANUFACTURER & MODEL" or "MAKE / MODEL".
         # Split on " / " if present (MAKE/MODEL convention), else first space.
         brand_model = _prop(details, ['MANUFACTURER & MODEL', 'MAKE / MODEL', 'MAKE/MODEL'])
-        if brand_model and ' / ' in brand_model:
-            brand, model = brand_model.split(' / ', 1)
-        elif brand_model and ' ' in brand_model:
-            brand, model = brand_model.split(' ', 1)
-        elif brand_model:
-            brand, model = brand_model, ''
+        if brand_model:
+            brand, model = _split_brand_model(brand_model)
         else:
             brand = _prop(details, ['MANUFACTURER', 'BRAND', 'MAKE'])
             model = _prop(details, ['MODEL NUMBER', 'MODEL'])
@@ -706,12 +728,12 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
         for d in sorted(detections_per_page[page_idx], key=lambda x: (x['cls'], x.get('tag') or '')):
             tag = d.get('tag') or ''
             details = schedule_details.get(tag, {})
-            brand_model = _prop(details, ['MANUFACTURER & MODEL', 'MANUFACTURER'])
-            if brand_model and ' ' in brand_model and not _prop(details, ['MODEL']):
-                brand, model = brand_model.split(' ', 1)
+            brand_model = _prop(details, ['MANUFACTURER & MODEL', 'MAKE / MODEL', 'MAKE/MODEL'])
+            if brand_model:
+                brand, model = _split_brand_model(brand_model)
             else:
-                brand = _prop(details, ['MANUFACTURER', 'BRAND'])
-                model = _prop(details, ['MODEL'])
+                brand = _prop(details, ['MANUFACTURER', 'BRAND', 'MAKE'])
+                model = _prop(details, ['MODEL NUMBER', 'MODEL'])
             neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
             etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
 
@@ -1059,8 +1081,11 @@ def main():
             for page_idx, dets in detections_per_page.items()
         },
     }
-    with open(detections_json_path, 'w', encoding='utf-8') as f:
-        json.dump(det_dump, f, indent=2, ensure_ascii=False)
+    try:
+        with open(detections_json_path, 'w', encoding='utf-8') as f:
+            json.dump(det_dump, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"  (detections sidecar failed: {e})")
 
     print(f"\n{'='*70}")
     print(f"DONE — open {out_dir} to see the results")

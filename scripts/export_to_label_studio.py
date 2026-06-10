@@ -176,6 +176,11 @@ def main():
     label_config = build_label_config(classes)
 
     title = args.ls_project_name or f"HVAC Review — {proj_dir.name}"
+    # Label Studio hard-caps project titles at 50 chars; a longer title makes the
+    # create call fail. Clamp so the batch script doesn't die silently on long
+    # folder names (BMO, Saint Mary's).
+    if len(title) > 50:
+        title = title[:50].rstrip()
     if args.dry_run:
         print(f"[dry-run] Would create LS project: {title}")
         pid = None

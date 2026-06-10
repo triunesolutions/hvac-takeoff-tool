@@ -22,9 +22,20 @@ import pdfplumber
 from tag_inference import _infer_yolo_class_from_service, _infer_class_from_tag, TAG_PREFIX_CLASS
 
 
-# Tag validation regex — valid tag patterns we accept
-TAG_REGEX = re.compile(r'^[A-Z]{1,5}(?:[-\s]?[A-Z0-9]{1,4})*$')
-# Must contain at least 1 letter (rejects pure numbers)
+# Opt-in debug logging. Many pdfplumber/OCR failures on messy PDFs are caught
+# and skipped silently (correct — one bad table shouldn't sink a run), but that
+# makes field failures invisible. Set TAKEOFF_DEBUG=1 to surface them.
+_DEBUG = bool(os.environ.get('TAKEOFF_DEBUG'))
+
+
+def _dbg(msg):
+    if _DEBUG:
+        print(f"  [debug] {msg}")
+
+
+# Must contain at least 1 letter (rejects pure numbers).
+# (The single source of truth for "is this a valid tag" is normalize_tag() —
+# an older module-level TAG_REGEX was unused and removed to avoid drift.)
 HAS_LETTER = re.compile(r'[A-Za-z]')
 # Tags seen in description text — scan for things like "LD-1-PLENUM"
 TAG_IN_DESC = re.compile(r'\b([A-Z]{1,4}-?\d+[A-Z]?(?:-[A-Z]+)?)\b')
@@ -362,7 +373,8 @@ def extract_schedules_and_marks(pdf_path, time_budget=None):
                 text_upper = (page.extract_text() or "").upper()
                 page_has_schedule = any(kw in text_upper for kw in SCHEDULE_KEYWORDS)
                 tables = page.extract_tables()
-            except Exception:
+            except Exception as e:
+                _dbg(f"table scan failed on page {page_index + 1}: {e}")
                 continue
 
             for t_index, table in enumerate(tables):
@@ -526,7 +538,15 @@ def extract_schedules_and_marks(pdf_path, time_budget=None):
                         if row and row[0] and str(row[0]).strip():
                             first_val = str(row[0]).strip()
                             break
-                    if first_val and re.match(r'^[A-Za-z]{1,4}-?\d{1,3}[A-Za-z]?$', first_val):
+                    # Accept a column-0 mark when it's tag-shaped (letters+digits,
+                    # e.g. "A1", "C-1") OR a bare 1–2 letter mark that normalize_tag
+                    # accepts ("A", "B"). Air-device schedules routinely use bare
+                    # single-letter marks with no MARK/TAG header — the digit-
+                    # requiring regex alone silently dropped those whole tables.
+                    if first_val and (
+                        re.match(r'^[A-Za-z]{1,4}-?\d{1,3}[A-Za-z]?$', first_val)
+                        or (len(first_val) <= 2 and normalize_tag(first_val))
+                    ):
                         mark_col_indices.append(0)
 
                 # Description columns (for extracting embedded tags, and for details).
@@ -655,7 +675,8 @@ def extract_legend_info(pdf_path, time_budget=None):
                 break
             try:
                 text = page.extract_text() or ""
-            except Exception:
+            except Exception as e:
+                _dbg(f"legend scan: text extract failed: {e}")
                 continue
             text_upper = text.upper()
 
@@ -786,55 +807,63 @@ def extract_marks_via_ocr(pdf_path, time_budget=None, dpi=150, max_pages=8, max_
     except Exception:
         return [], []
 
+    # try/finally so the document handle is released even if rendering or OCR
+    # raises mid-loop (previously the doc was never closed at all — a per-run
+    # leak; small at one doc/run, but wrong).
     reader = None
     _t0 = _time.time()
     marks_set = set()
     variables = []
-    n = min(len(doc), max_pages) if max_pages else len(doc)
-    for i in range(n):
-        if time_budget is not None and (_time.time() - _t0) > time_budget:
-            print(f"[schedule-ocr] time budget reached after page {i}/{n}")
-            break
-        try:
-            pix = doc[i].get_pixmap(dpi=dpi)
-            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-                pix.height, pix.width, pix.n)
-            if pix.n == 4:
-                img = img[:, :, :3]
-            # Bound per-page OCR cost: downscale large-format sheets so a single
-            # EasyOCR call can't run past the budget (checked only between pages).
-            if max_side:
-                longest = max(img.shape[0], img.shape[1])
-                if longest > max_side:
-                    scale = max_side / longest
-                    img = cv2.resize(img, None, fx=scale, fy=scale,
-                                     interpolation=cv2.INTER_AREA)
-        except Exception:
-            continue
-        if reader is None:
-            from tag_matcher import get_ocr_reader
-            reader = get_ocr_reader()
-        try:
-            toks = [str(t).upper() for t in reader.readtext(img, detail=0)]
-        except Exception:
-            continue
-        # Only harvest from schedule-looking pages — keeps floor-plan tag bubbles
-        # and detail-callout text from polluting the valid-mark list.
-        if sum(1 for t in toks if any(k in t for k in _SCHED_KW)) < 2:
-            continue
-        for t in toks:
-            tag = _ocr_tag_from_token(t)
-            if not tag or tag in marks_set:
+    try:
+        n = min(len(doc), max_pages) if max_pages else len(doc)
+        for i in range(n):
+            if time_budget is not None and (_time.time() - _t0) > time_budget:
+                print(f"[schedule-ocr] time budget reached after page {i}/{n}")
+                break
+            try:
+                pix = doc[i].get_pixmap(dpi=dpi)
+                img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                    pix.height, pix.width, pix.n)
+                if pix.n == 4:
+                    img = img[:, :, :3]
+                # Bound per-page OCR cost: downscale large-format sheets so a single
+                # EasyOCR call can't run past the budget (checked only between pages).
+                if max_side:
+                    longest = max(img.shape[0], img.shape[1])
+                    if longest > max_side:
+                        scale = max_side / longest
+                        img = cv2.resize(img, None, fx=scale, fy=scale,
+                                         interpolation=cv2.INTER_AREA)
+            except Exception as e:
+                _dbg(f"schedule-ocr: render failed on page {i}: {e}")
                 continue
-            marks_set.add(tag)
-            variables.append({
-                'tag': tag,
-                'schedule_name': 'OCR SCHEDULE (no text layer)',
-                'page': i + 1,
-                'properties': {},
-                'inferred_yolo_class': _ocr_infer_class(tag),
-                'source_row_index': -1,
-            })
+            if reader is None:
+                from tag_matcher import get_ocr_reader
+                reader = get_ocr_reader()
+            try:
+                toks = [str(t).upper() for t in reader.readtext(img, detail=0)]
+            except Exception as e:
+                _dbg(f"schedule-ocr: readtext failed on page {i}: {e}")
+                continue
+            # Only harvest from schedule-looking pages — keeps floor-plan tag bubbles
+            # and detail-callout text from polluting the valid-mark list.
+            if sum(1 for t in toks if any(k in t for k in _SCHED_KW)) < 2:
+                continue
+            for t in toks:
+                tag = _ocr_tag_from_token(t)
+                if not tag or tag in marks_set:
+                    continue
+                marks_set.add(tag)
+                variables.append({
+                    'tag': tag,
+                    'schedule_name': 'OCR SCHEDULE (no text layer)',
+                    'page': i + 1,
+                    'properties': {},
+                    'inferred_yolo_class': _ocr_infer_class(tag),
+                    'source_row_index': -1,
+                })
+    finally:
+        doc.close()
     return sorted(marks_set), variables
 
 

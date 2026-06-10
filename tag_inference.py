@@ -23,6 +23,13 @@ from collections import defaultdict
 import fitz
 
 
+# DPI used by takeoff_cli when rasterizing pages for YOLO. Detection pixel
+# coords live in this DPI's space, so converting them back to PDF points (72
+# dpi) needs this scale. Kept here as the single source of truth — takeoff_cli
+# imports it — so the renderer and the coord math can never silently drift.
+RENDER_DPI = 200
+
+
 # Common tag prefix → YOLO class mapping
 TAG_PREFIX_CLASS = {
     # Fans
@@ -58,6 +65,8 @@ TAG_PREFIX_CLASS = {
     'ER': 'AD-GRD',        # exhaust register
     # Linear diffusers
     'LD': 'AD-LINEAR PLENUM',
+    # Transfer-air grille (transfers air between spaces — a grille product)
+    'TA': 'AD-GRD',
     # Single-letter air-device tag prefixes (Sola-style schedules: S-1, R-1, E-1).
     # These are checked LAST in _infer_class_from_tag (shortest prefixes lose to
     # longer matches like EF/SF/RF/SD), so they only fire for bare single-letter
@@ -400,6 +409,14 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
             continue
         by_class[det.get('cls', '')].append(i)
 
+    # Fetch this page's text-layer words ONCE up front and share them across
+    # every detection — extract_nearby_text would otherwise re-open the PDF per
+    # detection. Same page for the whole call, so one fetch is enough.
+    try:
+        page_words = _page_words(pdf_path, page_idx)
+    except Exception:
+        page_words = []
+
     tagged = 0
     for cls, det_indices in by_class.items():
         resolved_cls = _resolve_class(cls, class_to_tags or {})
@@ -415,7 +432,8 @@ def level2_fingerprint_matching(detections, variables, pdf_path, page_idx,
             try:
                 nearby_words = extract_nearby_text(pdf_path, page_idx,
                                                      detections[di],
-                                                     radius_pts=radius_pts)
+                                                     radius_pts=radius_pts,
+                                                     words=page_words)
             except Exception:
                 continue
             nearby_tokens = set()
@@ -619,19 +637,33 @@ def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
 
 # ─── Text-layer helper (used by Level 2a fingerprint matching) ──────────────
 
-def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60):
+def _page_words(pdf_path, page_idx):
+    """Fetch the text-layer word boxes for one page, closing the document even
+    if get_text raises (otherwise a parse error leaks the PDF handle)."""
+    doc = fitz.open(pdf_path)
+    try:
+        return doc[page_idx].get_text("words")
+    finally:
+        doc.close()
+
+
+def extract_nearby_text(pdf_path, page_idx, det, radius_pts=60, words=None):
     """
     Get text near a detection from the PDF text layer.
     Returns list of text strings found within radius.
-    """
-    doc = fitz.open(pdf_path)
-    page = doc[page_idx]
-    words = page.get_text("words")
-    doc.close()
 
-    # Detection center in PDF points (convert from pixels)
-    # Assume DPI=200 → scale = 200/72
-    scale = 200 / 72
+    words : optional pre-fetched page word list (from _page_words). Level 2a
+    calls this once per detection on the SAME page, so the caller fetches the
+    page's words once and passes them in — avoiding a fresh fitz.open() per
+    detection, which was a measurable cost on dense multi-detection plans.
+    """
+    if words is None:
+        words = _page_words(pdf_path, page_idx)
+
+    # Detection center in PDF points. Pixel coords come from rendering the page
+    # at RENDER_DPI, so convert back with that shared scale (not a hardcoded
+    # 200) — keeps this correct if the render DPI ever changes.
+    scale = RENDER_DPI / 72
     det_cx_pts = det.get('cx', 0) / scale
     det_cy_pts = det.get('cy', 0) / scale
 
