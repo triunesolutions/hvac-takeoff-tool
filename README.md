@@ -37,9 +37,17 @@ default; `--model` overrides it). Python 3.12+.
 | `benchmark_samples.py` | Regression benchmark — scores generated xlsx vs team truth |
 | `models/` | Trained YOLO detectors |
 | `templates/` | Legend symbol references |
-| `scripts/` | Manual training / dataset-prep / eval / Label-Studio scripts |
+| `scripts/` | Manual training / dataset-prep / eval / Label-Studio scripts (honor `HVAC_*` env vars for paths) |
 | `notebooks/` | Colab/Kaggle training notebooks |
 | `docs/` | Engineering notes and benchmark reports |
+| `tests/` | Unit tests (`python tests/test_normalize_tag.py`) |
+| `ground_truth/` | Label Studio review output per project (tracked; feeds v11 retraining) |
+| `batch_datatrain_local/` | Full data-train batch report (heavy artifacts gitignored; `batch_report.md` kept) |
+| `sample_*.csv` | Class-survey outputs produced by `scripts/survey_sample_classes.py` |
+
+Dev/eval scripts default to JFL's local paths but accept env-var overrides on
+other machines: `HVAC_PROJECTS_DIR`, `HVAC_SAMPLE_ROOT`, `HVAC_YOLO_DIR`,
+`HVAC_OUTPUT_DIR`, `HVAC_BENCHMARK_OUT`.
 
 ## Reference
 

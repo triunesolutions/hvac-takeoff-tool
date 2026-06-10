@@ -23,8 +23,15 @@ Laptop was handed off 2026-05-11. To resume on a new machine:
    cat yolo_dataset_v11.zip.part-* > yolo_dataset_v11.zip
    unzip yolo_dataset_v10.zip   # → yolo_dataset/
    ```
-6. The team's `SAMPLE FILES 27.04.26/` benchmark corpus is **not** in the repo — re-source from the team Drive if running `benchmark_samples.py`.
-7. **Open follow-ups** (diagnosed 2026-05-11, not implemented): schedule-page OCR fallback for raster schedules (Krispy Kreme); bump `level2b_bubble_detect.max_distance` from 350 → 600; add `TA`/`LD`/`MD` to `TAG_PREFIX_CLASS`; page-level NMS in `takeoff_cli.py`; skip LEGEND/SCHEDULE/DETAILS sheets from YOLO. See session transcript for evidence.
+6. The team's `SAMPLE FILES 27.04.26/` benchmark corpus is **not** in the repo — re-source from the team Drive if running `benchmark_samples.py`. Scripts that hardcode dev paths now honor env-var overrides (`HVAC_PROJECTS_DIR`, `HVAC_SAMPLE_ROOT`, `HVAC_YOLO_DIR`, `HVAC_OUTPUT_DIR`, `HVAC_BENCHMARK_OUT`); defaults are unchanged so JFL's machine is unaffected.
+7. **Open follow-ups** (diagnosed 2026-05-11). Status updated 2026-06-10:
+   - ✅ **DONE** Schedule-page OCR fallback for raster schedules — `extract_marks_via_ocr()` in `schedule_parser.py`.
+   - ✅ **DONE** Page-level NMS in `takeoff_cli.py` — `NMS_DIST = 50` (per-page; no cross-page dedup yet).
+   - ✅ **DONE** Skip LEGEND/SCHEDULE/DETAILS sheets from YOLO — `NON_PLAN_TITLE_MARKERS` + `_is_non_plan_sheet()`.
+   - ✅ **DONE** Add `TA` to `TAG_PREFIX_CLASS` (`LD`/`MD` were already present).
+   - ⬜ **OPEN, needs benchmark first** Bump `level2b_bubble_detect.max_distance` 350 → 600 — a wider radius can mis-tag dense plans, so measure before/after on the sample set.
+   - ⬜ **OPEN** Cross-page NMS (per-page NMS exists; localization noise on Erewhon/Bungalow was the motivation — §19.6).
+   - ⬜ **OPEN** Label Studio title was capped at 50 chars — now clamped in `scripts/export_to_label_studio.py`. Title-block sheet-number heuristic + latest-date selection still open (§15.4).
 
 ---
 
@@ -369,28 +376,46 @@ Python 3.12+ required (dev on 3.14).
 
 ## 12. File Organization
 
+Reflects the cf24da2 reorg (manual scripts → `scripts/`, notebooks → `notebooks/`,
+docs → `docs/`); the production pipeline + data files scripts read by name stay
+at root.
+
 ```
 hvac-takeoff-tool/
 ├── CLAUDE.md                     ← this file
+├── README.md                    ← quick-start + layout
 ├── PRD.md                        ← full product requirements
-├── WHAT_WE_ARE_BUILDING.md       ← plain-English status
+├── requirements.txt             ← runtime + script deps
 │
 ├── takeoff_cli.py                ← main CLI entry point
 ├── schedule_parser.py            ← schedule table parsing + TagVariable
-├── tag_inference.py              ← 3-level tag→detection matching
+├── tag_inference.py              ← 3-level tag→detection matching (defines RENDER_DPI)
 ├── tag_matcher.py                ← EasyOCR helpers (Level 2b)
-├── tag_extractor.py              ← legacy text-layer tag extraction
+├── tag_extractor.py              ← detection-summary helper for output
 ├── class_aliases.py              ← training-data class merging
+├── benchmark_samples.py          ← end-to-end sample benchmark (stays at root)
+├── sample_*.csv                  ← class-survey outputs read by scripts
 │
-├── train_yolo.py                 ← YOLO training pipeline
-├── benchmark.py                  ← detection accuracy scorer
-├── colab_train.ipynb             ← Colab training notebook
+├── scripts/                      ← manual training / dataset-prep / eval / Label-Studio
+│   ├── train_yolo.py             ← YOLO training pipeline
+│   ├── benchmark.py              ← detection accuracy scorer
+│   ├── export_to_label_studio.py / import_from_label_studio.py
+│   └── …                         ← (bootstrap repo root onto sys.path; honor HVAC_* env vars)
+├── notebooks/                    ← Colab/Kaggle training + inference notebooks
+├── docs/                         ← engineering notes, benchmark reports, WHAT_WE_ARE_BUILDING.md
+├── tests/                        ← unit tests (e.g. test_normalize_tag.py)
 │
 ├── models/
 │   ├── hvac_yolov8s_v10.pt       ← production model (33 classes, CLI default)
-│   └── hvac_yolov8s_v9.pt        ← legacy (--model fallback, 35 classes)
+│   ├── hvac_yolov8s_v9.pt        ← legacy (--model fallback, 35 classes)
+│   └── hvac_tag_detector_v1.pt   ← tag-bubble detector (Level 2b')
 ├── templates/                    ← legend symbol templates (reference)
+├── ground_truth/                 ← Label Studio review output, per project (tracked, feeds v11)
+├── ground_truth.jsonl            ← committed review output through 2026-05-05
+│
 ├── output/                       ← per-project takeoff outputs (gitignored)
+├── benchmark_output/             ← sample-benchmark per-project outputs (gitignored)
+├── batch_datatrain_local/        ← full data-train batch report (gitignored; report kept)
 ├── runs/                         ← YOLO training runs (gitignored)
 └── yolo_dataset/                 ← training tiles (gitignored)
 ```
@@ -611,7 +636,7 @@ ground_truth/<project>/                            # tracked in git, feeds v11 r
 ### 19.3 Auth gotchas
 
 - LS 1.23 only exposes JWT-style refresh tokens as PATs. The legacy `Authorization: Token` header returns 401. Both export/import scripts call `POST /api/token/refresh/` and use `Authorization: Bearer <access>`.
-- Project title is **capped at 50 chars**. Long folder names (BMO, Saint Mary's) require `--ls-project-name "HVAC Review — Short Name"`. The default title is `HVAC Review — <project_dir.name>`. **TODO:** clamp this in `export_to_label_studio.py` so the batch script doesn't fail silently on long names.
+- Project title is **capped at 50 chars**. Long folder names (BMO, Saint Mary's) require `--ls-project-name "HVAC Review — Short Name"`. The default title is `HVAC Review — <project_dir.name>`. **DONE (2026-06-10):** `export_to_label_studio.py` now clamps the title to 50 chars so the batch script no longer fails silently on long names. The export/import scripts read the LS refresh token from `~/.label_studio_token` (see §19.2).
 - Run `import_from_label_studio.py` with `python -X utf8` on Windows — the summary's `→` arrow crashes the cp1252 console (files are written first, so a crash here is cosmetic).
 
 ### 19.4 First batch results (6 projects, May 5)
