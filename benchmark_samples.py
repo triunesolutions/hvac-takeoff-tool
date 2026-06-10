@@ -27,6 +27,7 @@ sys.stdout.reconfigure(line_buffering=True)
 import argparse
 import csv
 import json
+import os
 import re
 import subprocess
 import time
@@ -34,7 +35,8 @@ from collections import defaultdict
 from pathlib import Path
 
 
-SAMPLE_ROOT = Path(r'C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26')
+# Default is the original dev path; override with --root or $HVAC_SAMPLE_ROOT.
+SAMPLE_ROOT = Path(os.environ.get('HVAC_SAMPLE_ROOT', r'C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26'))
 TOOL_DIR = Path(__file__).resolve().parent
 OUT_ROOT = TOOL_DIR / 'benchmark_output'
 MAX_PLAN_MB = 20.0

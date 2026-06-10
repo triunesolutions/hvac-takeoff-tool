@@ -24,8 +24,9 @@ from collections import defaultdict
 from pathlib import Path
 from class_aliases import normalize_class
 
-PROJECTS_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\projects"
-OUTPUT_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\output\benchmark"
+# Override via env vars on other machines; defaults are the original dev paths.
+PROJECTS_DIR = os.environ.get('HVAC_PROJECTS_DIR', r"C:\Users\JFL\Downloads\Triune\data to train\projects")
+OUTPUT_DIR = os.environ.get('HVAC_BENCHMARK_OUT', r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\output\benchmark")
 DPI = 200
 TILE_SIZE = 640
 TILE_OVERLAP = 100  # Smaller overlap = fewer tiles

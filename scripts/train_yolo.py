@@ -27,9 +27,10 @@ from pathlib import Path
 from collections import defaultdict
 from class_aliases import normalize_class
 
-PROJECTS_DIR = r"C:\Users\JFL\Downloads\Triune\data to train\projects"
-YOLO_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\yolo_dataset"
-OUTPUT_DIR = r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool"
+# Override via env vars on other machines; defaults are the original dev paths.
+PROJECTS_DIR = os.environ.get('HVAC_PROJECTS_DIR', r"C:\Users\JFL\Downloads\Triune\data to train\projects")
+YOLO_DIR = os.environ.get('HVAC_YOLO_DIR', r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool\yolo_dataset")
+OUTPUT_DIR = os.environ.get('HVAC_OUTPUT_DIR', r"C:\Users\JFL\Downloads\Triune\hvac-takeoff-tool")
 DPI = 200
 TILE_SIZE = 640
 TILE_OVERLAP = 160

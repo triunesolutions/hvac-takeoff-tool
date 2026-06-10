@@ -6,7 +6,8 @@ import os
 from schedule_parser import parse_pdf_schedules
 import openpyxl
 
-PROJ = r'C:\Users\JFL\Downloads\Triune\data to train\projects'
+# Override via env var on other machines; default is the original dev path.
+PROJ = os.environ.get('HVAC_PROJECTS_DIR', r'C:\Users\JFL\Downloads\Triune\data to train\projects')
 
 # Only small PDFs — parser hangs on big ones
 tests = [

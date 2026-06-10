@@ -16,7 +16,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
-SAMPLE_ROOT = Path(r"C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26")
+# Override via env var on other machines; default is the original dev path.
+SAMPLE_ROOT = Path(os.environ.get('HVAC_SAMPLE_ROOT', r"C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26"))
 OUT_DIR = Path(__file__).parent
 SKIP = {"KNAPE FILE"}
 

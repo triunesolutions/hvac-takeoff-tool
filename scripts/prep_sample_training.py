@@ -23,8 +23,9 @@ import re
 import shutil
 from pathlib import Path
 
-SAMPLE_ROOT = Path(r"C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26")
-TARGET_ROOT = Path(r"C:\Users\JFL\Downloads\Triune\data to train\projects")
+# Override via env vars on other machines; defaults are the original dev paths.
+SAMPLE_ROOT = Path(os.environ.get('HVAC_SAMPLE_ROOT', r"C:\Users\JFL\Downloads\SAMPLE FILES 27.04.26\SAMPLE FILES 27.04.26"))
+TARGET_ROOT = Path(os.environ.get('HVAC_PROJECTS_DIR', r"C:\Users\JFL\Downloads\Triune\data to train\projects"))
 
 DROP_LOW_ANNOT = {
     "4.10.26 HVAC Replacement At The Leadership Academy - Lancaster",

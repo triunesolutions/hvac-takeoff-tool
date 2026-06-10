@@ -2,9 +2,11 @@
 # Re-run takeoff_cli to generate detections.json, then push to Label Studio
 # for each of the 5 high-recall projects.
 set -e
-cd "C:/Users/JFL/Downloads/Triune/hvac-takeoff-tool"
+# cd to the repo root (this script lives in scripts/) — portable, no hardcoded path.
+cd "$(dirname "$0")/.."
 
-SAMPLE_ROOT="C:/Users/JFL/Downloads/SAMPLE FILES 27.04.26/SAMPLE FILES 27.04.26"
+# Override on other machines: HVAC_SAMPLE_ROOT=/path/to/sample-files ./batch_prepare_review.sh
+SAMPLE_ROOT="${HVAC_SAMPLE_ROOT:-C:/Users/JFL/Downloads/SAMPLE FILES 27.04.26/SAMPLE FILES 27.04.26}"
 
 run_one () {
   local proj_folder="$1"
