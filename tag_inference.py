@@ -792,7 +792,8 @@ def compute_tagging_diagnostics(detections_per_page, class_to_tags):
 # ─── MAIN ENTRY POINT ───────────────────────────────────────────────────────
 
 def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
-               variables=None, page_images=None, deadline=None):
+               variables=None, page_images=None, deadline=None,
+               bubble_max_distance=350):
     """
     Run all levels of tag inference on all detections.
 
@@ -847,7 +848,8 @@ def infer_tags(detections_per_page, schedules, marks, mark_details, pdf_path,
         if (untagged_count > 0 and variables and page_images
                 and page_idx in page_images and not _over_budget):
             detections, stats2bp = level2b_bubble_detect(
-                detections, class_to_tags, page_images[page_idx]
+                detections, class_to_tags, page_images[page_idx],
+                max_distance=bubble_max_distance
             )
             all_stats.append(stats2bp)
 

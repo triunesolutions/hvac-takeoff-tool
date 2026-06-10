@@ -835,6 +835,11 @@ def main():
     parser.add_argument('--max-pages', type=int, default=60,
                         help='Cap on the number of pages to run detection on (default 60; 0 = no cap). '
                              'Protects against huge documents and the all-pages fallback.')
+    parser.add_argument('--bubble-max-dist', type=float, default=350.0,
+                        help='Max px from a detection to a tag bubble for Level-2b\' matching '
+                             '(default 350). WS1.3: raise (e.g. 600) to recover tags on sparse '
+                             'plans; benchmark before relying on it — a wider radius can mis-tag '
+                             'dense plans.')
     args = parser.parse_args()
 
     cli_start = time.time()
@@ -1003,7 +1008,8 @@ def main():
         print("\nInferring tags...")
         detections_per_page, tag_stats = infer_tags(
             detections_per_page, schedules, marks, mark_details, str(pdf_path),
-            variables=variables, page_images=page_images, deadline=deadline
+            variables=variables, page_images=page_images, deadline=deadline,
+            bubble_max_distance=args.bubble_max_dist
         )
         print(f"  Tagged: {tag_stats['tagged']}/{tag_stats['total']} ({tag_stats['tagged_pct']:.0f}%)")
         for ls in tag_stats.get('levels', []):
