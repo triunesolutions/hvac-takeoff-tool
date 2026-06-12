@@ -1,0 +1,158 @@
+project,plan,size_mb,status,sched_tags,detections,tagged,tagged_pct,untag_no_cand,untag_unmatched,distinct_tags,xlsx,annotated,runtime_s
+120_Copper_Ranch,A0.2B_ UNIT & BUILDING AREA TABULATIONS Rev.0.pdf,0.7,ok,0,3,0,0.0,3,0,0,True,True,89.0
+79_26-11-2025_Harris_County_Swift_Water_Rescue_Traini,REVISED SWIFT WATER 50_ CD SET 11.11.2025.pdf,0.8,ok,18,32,17,53.1,13,2,2,True,True,167.5
+58_1692-New_Hickory_HVAC_Knape_102176-PWJ,New Hickory - Mechanical - 100% IFR Set - Rev 01.pdf,0.8,ok,55,23,18,78.3,0,5,2,True,True,87.7
+08_Fort_Totten,035---M301 FIRST FLOOR VENTILATION PLAN.pdf,1.0,ok,7,43,0,0.0,6,37,0,True,True,144.9
+96_05-11-2025_Heil_of_Texas_Crosby,125173 EDCO Heil of Texas - Sealed Mechanical Drawings.pdf,1.0,no_xlsx,34,0,0,0.0,0,0,0,False,False,33.5
+101_11-11-2025_United,MECHANICAL.pdf,1.1,ok,73,139,129,92.8,5,5,7,True,True,311.3
+64_Academy_-_Corpus_Christi,26002 ~ ASMEP Bid Set 12.08.25_Redacted.pdf,1.2,ok,69,48,37,77.1,2,9,9,True,True,281.5
+sample_4.13.26 Building Improvement - 640 N Sepulveda Blvd (Ph3 & Ph4),Takoeff_Building Improvement - 640 N Sepulveda Blvd  (Ph3).pdf,1.2,ok,60,158,77,48.7,40,41,8,True,True,340.2
+74_07-11-2025_Harris_Health_Ben_Taub_Radiographic_Equ,Harris Health Ben Taub Radiographic Equip Replacement.pdf,1.3,ok,25,25,1,4.0,3,21,1,True,True,222.6
+15_Hope_Chapel,Takeoff_Hope Chapel Remodel.pdf,1.3,ok,0,14,0,0.0,14,0,0,True,True,225.2
+102_11-11-2025-CCISD_Multi_Campus_Priority_Repairs,CCISD Multi Campus Priority Repairs.pdf,1.4,no_xlsx,3,0,0,0.0,0,0,0,False,False,69.1
+94_15-11-2025_CCISD_Multi_Campus_Priority_Repairs,CCISD Multi Campus Priority Repairs.pdf,1.4,no_xlsx,3,0,0,0.0,0,0,0,False,False,67.3
+21_Yucaipa_Meadows_BldgA,1.6.26 Yucaipa Meadows - 13699 3rd Street (Bldg A).pdf,1.4,ok,4,620,1,0.2,602,17,1,True,True,257.9
+73_04-11-2025_new_office,Office Building Mec Plans.pdf,1.5,ok,3,144,0,0.0,144,0,0,True,True,129.1
+60_23-12-2025_Safelite_Deer_Park,Mech-Safelite (Deer Park).pdf,1.5,ok,17,49,2,4.1,11,36,2,True,True,193.6
+93_14-11-2025_SPD_Renovation_-_Waco,SPD Renovation - Waco.pdf,1.5,ok,17,50,0,0.0,1,49,0,True,True,338.4
+81_AEP_Pompano_Stn_RFQ_Knape_101842-PWJ,AEP Pompano - Mechanical & Electrical - 100% IFR Set - Rev 01 (3).pdf,1.6,ok,32,58,0,0.0,29,29,0,True,True,289.1
+71_04-11-2025_Mavis_Tires__Breaks,MAVIS TIRES & BRAKES - Spring TX Mech Plans.pdf,1.6,ok,7,38,36,94.7,2,0,2,True,True,260.3
+sample_4.21.26 Space Shuttle Exhibit And Education Bldg,4.22.26 Space Shuttle Exhibit And Education Bldg.pdf,1.6,ok,76,14,0,0.0,4,10,0,True,True,245.6
+sample_4.21.26 Anaheim 82,4.22.26 Anaheim 82.pdf,1.6,ok,0,73,0,0.0,73,0,0,True,True,201.9
+76_22-11-2025_Metal_Building_Extension,Piping Technology Shop Extension MECH Plans.pdf,1.8,ok,8,20,0,0.0,1,19,0,True,True,177.8
+17_Optum_Pharmacy,Takeoff_Optum - Pharmacy Reno - 502 Torrance Blvd.pdf,1.8,ok,29,38,36,94.7,2,0,2,True,True,174.7
+sample_4.13.26 Skytron Modern Aviation Bldg B TI,4.14.26 Skytron Modern Aviation Bldg B TI.pdf,1.8,ok,0,23,0,0.0,2,21,0,True,True,189.5
+119_Alliance_Medical,24-012.00_Alliance MOB_Conformance Set_Combined (1).pdf,2.0,ok,123,3,0,0.0,0,3,0,True,True,169.1
+97_08-11-2025_Shannon_Pumping_Plant,Shannon Pumping Plant.pdf,2.1,ok,23,27,0,0.0,0,27,0,True,True,279.4
+sample_4.15.26 Free People - 6300 W. 3rd Street,4.16.26 Free People - 6300 W. 3rd Street.pdf,2.1,ok,1,34,0,0.0,34,0,0,True,True,215.7
+113_Eide_Ford_Renovation_and_Addition_12-16-25,0496008 Bid Set 12-1-25 1.pdf,2.1,ok,12,100,0,0.0,24,76,0,True,True,293.7
+65_Exxon_STH_HTX_Terminal_Ctrl_Blg_Knape_101960-PWJ,Exxon STH HTX Terminal Ctrl Blg.pdf,2.1,ok,45,96,94,97.9,1,1,4,True,True,159.9
+89_12-11-2025_DXD_Corrolton,"DXD Carollton Storage - Carrollton, TX.pdf",2.2,ok,9,55,0,0.0,55,0,0,True,True,87.3
+44_Bridal_Oaks_Estate,Bridal Oaks Estate - Venue.pdf,2.2,ok,0,66,0,0.0,66,0,0,True,True,130.7
+117_Tioga_Volunteer_Fire_and_Ambulance_Dept_Addition_1,Tioga Volunteer Fire and Ambulance Dept.pdf,2.3,ok,32,23,22,95.7,1,0,1,True,True,190.5
+sample_4.14.26 Saint Mary's Stadium Clubhouse,4.15.26 Saint Mary's Stadium Clubhouse.pdf,2.4,ok,0,53,0,0.0,53,0,0,True,True,201.7
+02_Flex_210,3.11.26 EAG - 9530 Towne Center Drive (Flex 210) - Final.pdf,2.5,ok,16,42,40,95.2,2,0,4,True,True,116.1
+77_25-11-2025_HM_CL_-_MOB_4_-_PO_Admin_-_Suite_580,HM CL - MOB 4 - PO Admin - Suite 580.pdf,2.5,ok,21,56,1,1.8,0,55,1,True,True,386.5
+04_Flex_230,3.11.26 EAG - 9530 Towne Center Drive (Flex 230) - Final.pdf,2.6,ok,19,39,37,94.9,2,0,4,True,True,129.4
+03_Flex_220,3.11.26 EAG - 9530 Towne Center Drive (Flex 220)- Final.pdf,2.6,ok,18,52,50,96.2,2,0,4,True,True,140.7
+01_Flex_200_Corridors,3.11.26 EAG - 9530 Towne Center Drive (Flex 200 + Corridors) - Final.pdf,2.6,ok,22,65,60,92.3,4,1,4,True,True,130.2
+sample_4.15.26 9020 Aviation,4.17.26 9020 Aviation.pdf,2.8,ok,6,29,11,37.9,4,14,1,True,True,244.6
+105_09-12-2025_Alegre_Storage,Plaza Alegre - Mech dwgs.pdf,2.8,ok,3,85,0,0.0,85,0,0,True,True,224.1
+57_04-12-2025_Plaza_Alegre,Plaza Alegre - Mech dwgs.pdf,2.8,ok,3,85,0,0.0,85,0,0,True,True,195.1
+123_Greenville_-_Hunt_County_Municipal_Complex,Greenvill - Hunt County Municipal Complex - Mech FP.pdf,2.9,ok,140,1,0,0.0,0,1,0,True,True,547.7
+95_20-11-2025_North_West_Houston_Heart_-_Surgery_Cent,Heart and Vascular Surgery Center - Full Set - Rev 1 City Comments.pdf,2.9,ok,50,21,0,0.0,2,19,0,True,True,245.3
+75_08-11-2025_Seamless_Storage,"Seamless Storage @ MLK - Austin, TX.pdf",2.9,ok,0,51,0,0.0,51,0,0,True,True,197.7
+06_Capitol_Complex,2025156 Capitol Complex Mechanical Upgrades Phase 2 Drawings.pdf,3.0,no_xlsx,1,0,0,0.0,0,0,0,False,False,245.0
+sample_4.16.26 Harbor Freight - Napa,4.17.26 Harbor Freight - Napa.pdf,3.0,ok,70,6,0,0.0,3,3,0,True,True,244.7
+26_Larchmont,11.19.25 531 N. Larchmont Blvd.pdf,3.1,ok,0,59,0,0.0,59,0,0,True,True,195.0
+111_18-12-2025_110525_Roots_Church_Arch_MEP,Mech 110525 Roots Church Arch MEP Civil Drawings to Steven Adair.pdf,3.2,ok,0,209,0,0.0,209,0,0,True,True,234.7
+53_MF_Office_Building,M&F_Permit Set_Mechanical.pdf,3.2,no_xlsx,5,0,0,0.0,0,0,0,False,False,604.1
+59_19-12-2025_HMWB_HAR_-_PO_ENT_-_Suite_205,Mech-10_-_HM_WB_HAR_-_PO_ENT_-_Suite_205_-_Issue_For_Construction.pdf,3.2,no_xlsx,7,0,0,0.0,0,0,0,False,False,592.8
+106_10-12-2025_League_City_Parkway_Storage,"League City Parkway Storage - League City, TX.pdf",3.4,ok,0,37,0,0.0,37,0,0,True,True,211.6
+sample_4.18.26 Acushnet Bldg 1 TI,4.20.26 Acushnet Bldg 1 TI.pdf,3.4,ok,133,91,0,0.0,1,90,0,True,True,395.1
+108_16-12-2025_HM_Smith_PO_Medicine_Suite_1001,HM Smith PO Medicine Suite 1001.pdf,3.4,ok,13,78,0,0.0,1,77,0,True,True,349.7
+sample_4.14.26 BMO Santee CA De Novo 2026 Reno,4.16.26 BMO Santee CA De Novo 2026 Reno.pdf,3.5,ok,48,64,56,87.5,0,8,4,True,True,232.1
+78_25-11-2025_Phase_Plan_HMWB_Centerfield_Level_2__DD,Phase Plan HMWB Centerfield Level 2.pdf,3.6,ok,63,113,1,0.9,2,110,1,True,True,347.1
+107_16-12-2025_Garages_of_Texas,"Garage of Texas Phase - Allen, TX.pdf",3.9,ok,3,16,0,0.0,16,0,0,True,True,66.2
+sample_4.16.26 Best RV Turlock,4.17.26 Best RV Turlock.pdf,3.9,ok,37,166,39,23.5,0,127,1,True,True,399.0
+18_Planet_Fitness,Takeoff_Planet Fitness - La Crescenta.pdf,4.0,no_xlsx,48,0,0,0.0,0,0,0,False,False,215.7
+14_Burlington_Buena_Park,Takeoff_Burlington - Buena Park Marketplace.pdf,4.2,ok,20,52,0,0.0,12,40,0,True,True,246.5
+25_ARE_Campus_Point,1.12.26 ARE Campus Point PS1.pdf,4.3,ok,72,2,0,0.0,0,2,0,True,True,380.2
+35_Columbia_Bank,M Pages.pdf,4.3,ok,18,59,30,50.8,2,27,9,True,True,273.9
+sample_4.13.26 The Bungalow - San Diego,4.14.26 The Bungalow - San Diego.pdf,4.6,ok,68,7,0,0.0,0,7,0,True,True,349.0
+sample_4.16.26 TVUSD Temecula ES Renovation,4.17.26 TVUSD Temecula ES Renovation.pdf,4.8,no_xlsx,18,0,0,0.0,0,0,0,False,False,103.0
+sample_4.22.26 29th Street Apartments,4.23.26 29th Street Apartments.pdf,4.9,ok,11,21,0,0.0,1,20,0,True,True,263.7
+68_RFQ_HCESD_60_Knape_102154-PWJ,22503409_drawings_v03_addendum 1.pdf,5.3,ok,63,342,110,32.2,41,191,9,True,True,331.0
+sample_4.18.26 UCLA Health Oncology TI,4.20.26 UCLA Health Oncology TI.pdf,5.3,no_xlsx,55,0,0,0.0,0,0,0,False,False,244.8
+sample_4.13.26 Rady's Children - Temecula Plaza,4.14.26 Rady's Children - Temecula Plaza.pdf,5.4,no_xlsx,2,0,0,0.0,0,0,0,False,False,243.1
+86_11-11-2025_Magnolia_self_storage,mangolia storage.pdf,5.6,ok,3,105,0,0.0,105,0,0,True,True,137.6
+87_11-12-2025-Sonangol_Marine_Services_Office_Build-O,mangolia storage.pdf,5.6,ok,3,105,0,0.0,105,0,0,True,True,161.5
+125_Hartwood_at_Windstone,Houston - Hartwood at Windstone Apt - Mech FP - Marked.pdf,5.6,ok,4,135,0,0.0,135,0,0,True,True,131.5
+sample_4.13.26 AALRR - Citrus Tower,4.15.26 AALRR - Citrus Tower.pdf,5.6,no_xlsx,3,0,0,0.0,0,0,0,False,False,114.3
+sample_4.14.26 Fendi - Fashion Valley,Takeoff_Fendi - Fashion Valley.pdf,5.7,ok,14,103,4,3.9,62,37,2,True,True,350.4
+84_Crunch_Fitness_-_Austin,"9-16-25 - Austin, TX (Hana World) - Pre-Delta Permit Set - Combined Set.pdf",5.7,ok,16,137,0,0.0,17,120,0,True,True,262.9
+33_Hive_Apartments,MSheets - The Hive on 11th.pdf,5.9,ok,1,118,0,0.0,118,0,0,True,True,175.3
+23_Shamrock_Capital,1.7.26 Shamrock Capital TI.pdf,5.9,ok,0,55,0,0.0,55,0,0,True,True,222.9
+sample_4.13.26 Erewhon - Pacific Palisades,4.15.26 Erewhon - Pacific Palisades.pdf,6.0,ok,0,76,0,0.0,76,0,0,True,True,210.5
+31_iThink_Fitness,iThink Fitness Mech Pages.pdf,6.0,ok,0,67,0,0.0,67,0,0,True,True,160.3
+90_12-11-2025_QT_4004,82_4004_MECH_B8_Addendas.pdf,6.1,ok,0,72,0,0.0,72,0,0,True,True,185.7
+99_10-11-2025-Crescent_ASC,Crescent ASC Mechanical 22.pdf,6.2,no_xlsx,0,0,0,0.0,0,0,0,False,False,128.5
+98_08-11-2025_Texas_Roadhouse_-_Bastrop_TX,"Texas Road House - Bastrop, TX .pdf",6.4,ok,0,103,0,0.0,103,0,0,True,True,154.8
+16_Perch_Restaurant,Takeoff_Oak View Group - Perch Restaurant.pdf,6.4,ok,83,7,2,28.6,0,5,1,True,True,244.7
+128_Oak_Hill_Apt_-_Tyler,Tyler - Oak Hill Apt - Mech (Marked).pdf,6.4,ok,0,71,0,0.0,71,0,0,True,True,211.4
+22_Yucaipa_Meadows_BldgB,1.6.26 Yucaipa Meadows - 13699 3rd Street (Bldg B).pdf,6.5,ok,40,579,368,63.6,209,2,2,True,True,274.6
+sample_4.10.26 Woodbridge HS Modernization - Bldg J & K,4.13.26 Woodbridge HS Modernization - Bldg J & K.pdf,6.7,ok,92,23,18,78.3,5,0,1,True,True,319.3
+61_23-12-2025_Smoky_Mos,Pages from SmokeyMo's-100_Progress-051925.pdf,7.2,ok,0,87,74,85.1,13,0,1,True,True,172.1
+126_Harvest_Ridge,_MECH DD 111025.pdf,7.4,ok,0,114,2,1.8,14,98,1,True,True,210.4
+sample_4.17.26 LBUSD Stevenson ES,4.20.26 LBUSD Stevenson ES.pdf,7.7,ok,161,25,0,0.0,5,20,0,True,True,325.5
+36_Aaron_Packaging,MECH Pages from 24-086 Aaron Packaging_Progress Set 2026-02-17.pdf,7.8,ok,0,162,0,0.0,162,0,0,True,True,138.0
+05_Basin_Electric,BGS-MV-000-0302.pdf,7.8,no_xlsx,0,0,0,0.0,0,0,0,False,False,3519.1
+sample_4.16.26 Zion Market - Shell Improvements,4.17.26 Zion Market - Shell Improvements.pdf,7.9,ok,0,3,0,0.0,3,0,0,True,True,244.5
+41_Pelican_Commerce_Center,PELICAN COMMERCE CENTER.pdf,8.2,ok,21,110,1,0.9,84,25,1,True,True,384.6
+85_Downsville_Pike_Elementary,Mechanical (6).pdf,8.7,ok,300,171,95,55.6,7,69,8,True,True,764.4
+sample_4.21.26 Autry Museum Of The American West - Cafe And Kitchen,4.22.26 Autry Museum Of The American West - Cafe.pdf,8.8,ok,0,3,0,0.0,3,0,0,True,True,245.4
+sample_4.16.26 JPMC One Paseo 2nd Floor Expansion,4.17.26 JPMC One Paseo 2nd Floor Expansion (Suite 220).pdf,9.7,no_xlsx,29,0,0,0.0,0,0,0,False,False,444.9
+24_Mission_Bay_Health,1.8.26 Mission Bay - Family Health Center TI.pdf,9.8,ok,176,5,0,0.0,0,5,0,True,True,285.3
+sample_4.17.26 Bradley Terraces - Skilled Nursing Facility,4.20.26 Bradley Terraces - Skilled Nursing Facility.pdf,9.9,ok,45,27,0,0.0,0,27,0,True,True,294.8
+sample_4.16.26 OSI Irvine Relocation (OSI Pacifica),4.16.26 OSI Irvine Relocation (OSI Pacifica).pdf,9.9,ok,0,10,0,0.0,10,0,0,True,True,244.1
+129_Residence_Inn_-_El_Paso,El Paso - Residence Inn - MECH FP.pdf,10.0,ok,0,200,0,0.0,200,0,0,True,True,199.3
+72_04-11-2025_Rice_University_Moody_Center,Rice University Moody Center.pdf,10.3,ok,1,246,0,0.0,246,0,0,True,True,191.9
+82_Brakes_Plus_-_Belton,25135 ~ Civil + ASMEP Bid Set_Redacted.pdf,11.7,ok,0,23,0,0.0,23,0,0,True,True,197.1
+122_Elyson_Apartments,"Elyson Apartments - Katy, TX.pdf",11.9,no_xlsx,0,0,0,0.0,0,0,0,False,False,248.3
+91_12-11-2025_Southwestern_University_Field,"Southwestern University- Field House- Georgetown, TX.pdf",12.2,ok,0,26,0,0.0,26,0,0,True,True,219.5
+sample_4.14.26 ScanHealth - Cerritos,4.16.26 Scanhealth - Cerritos.pdf,12.4,no_xlsx,91,0,0,0.0,0,0,0,False,False,531.9
+127_Holiday_Inn_-_Bedford,Bedford - Holiday Inn - Mech FP.pdf,12.7,ok,1,25,0,0.0,25,0,0,True,True,158.3
+20_Aritzia_Americana,1.19.26 Aritzia - Americana At Brand.pdf,13.0,ok,50,129,0,0.0,129,0,0,True,True,288.2
+13_STEM_Field_House,Combined Set - STEM Field House.pdf,13.1,ok,90,33,0,0.0,26,7,0,True,True,288.1
+104_06-12-2025_Second_Baptist_Church_Cypress_Campus_-_,Mech Second Baptist Church Cypress Campus - Family Issue for Bid.pdf,13.4,ok,183,200,5,2.5,0,195,3,True,True,1086.4
+112_12-05-2025_LaCrosse_New_Elementary,LaCrosse New Elementary.pdf,13.6,ok,319,222,0,0.0,25,197,0,True,True,383.1
+38_OLGMC_GME_Phase_2,20251016_20719248_01_GME_Phase2_Bid_Drawings.pdf,14.2,ok,8,12,0,0.0,1,11,0,True,True,318.2
+83_Brakes_Plus_-_Bonham,25137 ~ Civil + ASMEP Bid Set_Redacted.pdf,14.3,ok,5,31,4,12.9,7,20,2,True,True,275.1
+39_Ochsner_Cath_Lab_1_Renovation_BR,ochsner-oneal-ccl1-cds-20.pdf,15.1,ok,4,9,0,0.0,9,0,0,True,True,318.0
+121_Define_Living_Park_Apt,Houston - Define Living Apt - Mech FP - Marked.pdf,15.3,ok,17,79,40,50.6,13,26,2,True,True,298.0
+48_Springhill_Townplace_Phase_2_-_Greenville,Phase 2 - TownePlace - Mech FP - NEW.pdf,15.4,ok,0,24,0,0.0,24,0,0,True,True,130.3
+50_Air_Products_Blue_Energy_Project,CCB Mechanical Combined.pdf,15.6,ok,1,194,0,0.0,194,0,0,True,True,173.6
+51_Capital_One_Minden,Capital One Minden HVAC Replacement Plans.pdf,15.6,ok,93,29,0,0.0,15,14,0,True,True,349.9
+66_Flour_Mill,Flour Mill Mechs.pdf,15.7,ok,0,41,0,0.0,41,0,0,True,True,214.5
+88_12-11-2025_15600_JFK_ITB,GSA - TSA Houston Addendum 1 COMBINED.pdf,15.7,ok,50,274,106,38.7,168,0,1,True,True,260.0
+46_Parallel_Apartments_-_Waco,Waco - Mechanical APT - Marked.pdf,16.0,ok,60,62,11,17.7,14,37,3,True,True,379.9
+92_13-11-2025_Collins_Self_Storage,"Collins Self Storage - Arlington, TX.pdf",16.7,ok,55,100,10,10.0,0,90,2,True,True,660.5
+43_Bethesda_Health_Clinic,BETHESDA HEALTH CLINIC 100SS - MH.pdf,17.2,no_xlsx,28,0,0,0.0,0,0,0,False,False,795.6
+32_Intermountain_Electric,Intermountain Electric Planset.pdf,17.2,ok,15,148,0,0.0,6,142,0,True,True,857.6
+116_Station_Bank_Mandan_Remodel_12-15-25,2527-Starion-Bank-Mandan-Remodel-Drawings-12-2-25.pdf,17.3,ok,13,67,0,0.0,2,65,0,True,True,257.9
+11_LUS_Admin,Lus Administration Building Hvac Replacement ACS #9-17 specs.pdf,17.6,no_xlsx,0,0,0,0.0,0,0,0,False,False,120.6
+63_30-12-25_HHH_Northwest_Cafe_Renovation_and_Sips_Re,HCA_NW_Cafe_Renovation_-_Complete_Set.pdf,17.6,ok,2,2,0,0.0,2,0,0,True,True,143.5
+110_16-12-2025_PO_Medicine_-_Suite_1101,11_-_HM_Smith_-_PO_Medicine_-_Suite_1101_-_Issue_For_Construction.pdf,19.4,ok,39,8,0,0.0,1,7,0,True,True,320.3
+124_Hampton_Inn_-_Ft_Worth,Ft. Worth - Hampton Inn - Mech FP.pdf,19.8,ok,9,106,0,0.0,106,0,0,True,True,201.6
+109_16-12-2025_HM_TW_MOB1_-_PO_GME_-_SUITE_640,10 - HM TW MOB1 - PO GME - Suite 640 - Issue For Construction.pdf,20.2,ok,31,24,0,0.0,2,22,0,True,True,345.1
+70_Tempo_By_Hilton_-_Hotel,25-00277ND-9-Mech 75_ 11-6-25.pdf,20.9,ok,5,127,0,0.0,127,0,0,True,True,229.8
+115_Great_Plains_Food_Bank_Regional_Service_Center_12-,GREAT PLAINS FOOD BLANK REGIONAL SERVICE CENTER.pdf,21.5,ok,0,4,0,0.0,4,0,0,True,True,188.0
+sample_4.11.26 Total Wine & More - Store #1149,4.13.26 Total Wine & More - Store #1149.pdf,22.0,ok,0,85,0,0.0,85,0,0,True,True,202.7
+37_Club_for_Fitness_Metairie,Club 4 Fitness - Metairie Veterans - Drawings - 2025-10-24.pdf,23.4,ok,0,4,0,0.0,4,0,0,True,True,247.7
+49_The_Reserve_at_Kilgore,Kilgore - Reserve - MECH - Marked.pdf,23.4,ok,5,57,0,0.0,56,1,0,True,True,247.9
+100_10-11-2025-Greenhouse_ASC,Greenhouse Mechanical Set 14.pdf,23.6,ok,0,16,0,0.0,16,0,0,True,True,168.9
+67_Goodwin_House,Goodwin House Mechs (1).pdf,24.9,ok,35,130,0,0.0,25,105,0,True,True,264.1
+sample_4.15.26 Ontario Museum Of History & Art - North Gallery,4.16.26 Ontario Museum Of History & Art - North Gallery.pdf,25.5,ok,25,1,0,0.0,0,1,0,True,True,150.2
+80_26-11-2025_MH_SW-MEIC_Southwest_IR,Combined MHSW_IR Exchange Drawings.pdf,28.0,ok,4,41,4,9.8,28,9,2,True,True,261.3
+56_The_Best_Stop_Plant_Expansion,BEST STOP PLANT EXPANSION - BID SET.pdf,28.2,ok,0,11,0,0.0,11,0,0,True,True,232.0
+103_05-12-2025_Quest_Houston_Lab_Renovation,Quest Houston Lab Renovation.pdf,32.4,ok,6,254,0,0.0,254,0,0,True,True,205.3
+34_doTERRA_TI,doTERRA TI - Combined Set.pdf,33.2,ok,29,20,0,0.0,13,7,0,True,True,306.9
+19_Vista_Murrieta,Takeoff_Vista Murrieta Apartments.pdf,37.0,ok,0,21,0,0.0,21,0,0,True,True,263.8
+27_Sheraton_Hotel,2026-0323 Sheraton Crown Center-PRICING ISSUANCE.pdf,42.1,ok,92,2,0,0.0,0,2,0,True,True,289.0
+29_St_Wenteslaus_Cain_Hall,5563-00_Cain Hall Renovation_Final Drawings_with Addendum 1.pdf,42.7,ok,7,36,1,2.8,3,32,1,True,True,367.0
+12_Grand_Calilou,251217 - OTB Drawings - 2022.01-GCEHI.pdf,44.3,ok,2,40,0,0.0,40,0,0,True,True,214.1
+47_Ponderosa_at_Lemon_Creek,Ponderosa at Lemon Creek.pdf,46.1,ok,8,10,0,0.0,6,4,0,True,True,266.4
+07_Dickinson_Museum,Dickinson Museum - Final Drawings 02.11.26.pdf,47.3,ok,0,20,0,0.0,20,0,0,True,True,232.9
+40_Ochsner_Health_Center_Kaplan,24-023_Ochsner_Abrom_Kaplan_Health_Center_DD.pdf,52.9,ok,0,40,0,0.0,40,0,0,True,True,220.8
+10_Gonzales_Middle,Gonzales Middle Renovations Combined Drawings.pdf,57.0,ok,2,22,0,0.0,22,0,0,True,True,242.8
+54_Renovation_of_George_T_Madison_Hall_-_LA_Tech,2025-10-08 FP&C 19-625-22-01 GTM DRAWINGS.ywa 2022-16.pdf,59.0,ok,0,38,0,0.0,38,0,0,True,True,214.7
+55_Terrebonne_High_School_Renovations,22100-A_20251103_THS_MainBldg_100%Plans_Vol-2_SECURE.pdf,67.3,ok,15,27,2,7.4,24,1,1,True,True,559.0
+69_Reserve_at_Strathmore,2025-08-19 - Strathmore Reserve - MEP VE Set - Mech.pdf,67.6,ok,0,182,0,0.0,182,0,0,True,True,165.3
+45_Oasis_of_Sanger,1_Oasis At Sanger_Stamped_Building Plan.pdf.pdf,68.7,ok,0,115,0,0.0,115,0,0,True,True,139.5
+52_DRH_Lafayette_West_Office,2025.11.05 DRH LA WEST OFFICE_PERMIT-BID SET.pdf,88.1,ok,24,2,0,0.0,0,2,0,True,True,275.0
+28_St_Elizabeth,3-24090 St Elizabeth Gathering Center FULL PLANS 26-0316.pdf,93.3,ok,0,49,0,0.0,49,0,0,True,True,248.6
+42_Renovation__Addition_to_Existing_Law_Library_-_AA_,Renovation & Addition to Existing Law Library - A.A. Lenoir Law Center.pdf,96.3,no_xlsx,33,0,0,0.0,0,0,0,False,False,243.0
+114_Grand_Forks_Childrens_Museum_BP2_12-19-25,GFCM_100__Construction_Documents_Drawings.pdf,97.1,no_xlsx,102,0,0,0.0,0,0,0,False,False,341.4
+30_Mygrant_Glass,Mygrant Glass- 95% CD 2026-03-23.pdf,100.0,no_xlsx,2,0,0,0.0,0,0,0,False,False,248.5
+09_Acadiana_High,Acadiana_HS_New_Addition_100%_CMAR_Submittal_1.16.2026.pdf,105.0,no_xlsx,36,0,0,0.0,0,0,0,False,False,342.2
+62_30-12-2025_Lulac_-_C60_Clubhouse_historical,plan 12.18.2025_C60_Clubhouse_IFP .pdf,167.1,ok,78,2,0,0.0,1,1,0,True,True,256.8

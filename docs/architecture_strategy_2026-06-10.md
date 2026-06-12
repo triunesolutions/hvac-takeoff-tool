@@ -67,6 +67,17 @@ aliasing for tag lookup (already partially built in `class_aliases.py` /
 
 ## 3. The plan — four workstreams, priority order
 
+> **⚠️ PRIORITY CORRECTED 2026-06-12 — read this first.** The full 157/157
+> WS1-instrumented batch + a proper disaggregation
+> (`docs/tag_inference_disaggregation_2026-06-12.md`) **reverses the order
+> below.** Of the untagged mass (16.4% tagged overall): **WS2 schedule parser =
+> 56.4%** (the median mover), **OCR/distance (WS1.3/1.4) = 31.0%**, and **TRUE
+> class-gap (WS1.2 families/WS2.4) = only 12.7%.** The original §3 led with WS1
+> class families based on a 58/157 interim read that used a crude `sched_tags>0`
+> gate; gating on schedule *health* showed that mass is really parser
+> under-extraction. **Actual priority: WS2 first, then WS1.3/1.4 OCR, then WS1.2
+> families.** The text below is retained for its per-item detail, not its order.
+
 ### WS1 — Tag inference (current gate; biggest expected gain)
 
 1. **Instrument before fixing.** Record per-level outcome stats (L1 / 2a / 2b' / 2b
@@ -143,6 +154,16 @@ Rough sizing from the failure-mode ledger (fractions of projects in each bucket,
 | WS2 parser long tail | 0–1 schedule tags | ~20% |
 | WS3 page selection | tags fine, ~0 detections | ~10% |
 | WS4 measurement | makes the other three provable | all |
+
+**MEASURED 2026-06-12** (replaces the estimates above — share of the *untagged
+detection mass* across 157 projects, per
+`docs/tag_inference_disaggregation_2026-06-12.md`):
+
+| Workstream | Failure bucket | Share of untagged |
+|---|---|---|
+| **WS2 schedule parser** | zero-parse (25.2%) + sparse-parse (31.2%) | **56.4%** |
+| WS1.3 / WS1.4 OCR + distance | candidates exist, OCR/distance miss | 31.0% |
+| WS1.2 families / WS2.4 | healthy schedule (≥10 tags), still no candidate | 12.7% |
 
 The honest framing on "perfect count": the realistic near-term target is a
 high-recall, high-precision *assisted* count — the tool gets the bulk right, the

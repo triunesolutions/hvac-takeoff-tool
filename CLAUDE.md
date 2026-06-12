@@ -9,6 +9,12 @@
 
 ## New-PC bootstrap (2026-05-11)
 
+> **2026-06-12 — laptop wiped after this date.** Start at
+> `docs/SESSION_STATE_2026-06-12.md` (where everything is + current verdict),
+> then `docs/tag_inference_disaggregation_2026-06-12.md` (the measured priority:
+> **WS2 schedule parser is the bottleneck, 56% of untagged mass — not class
+> families**). Claude memory is snapshotted into `docs/memory_snapshot_2026-06-12/`.
+
 Laptop was handed off 2026-05-11. To resume on a new machine:
 
 1. `git clone https://github.com/triunesolutions/hvac-takeoff-tool && cd hvac-takeoff-tool`

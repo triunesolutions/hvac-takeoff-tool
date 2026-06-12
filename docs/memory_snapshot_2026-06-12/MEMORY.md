@@ -1,0 +1,15 @@
+- [User Profile](user_profile.md) — HVAC industry, has takeoff team, provided Rebar's bootstrap data
+- [HVAC Takeoff Tool Project](project_hvac_takeoff_tool.md) — Building AI takeoff tool, internal first then public
+- [Focus on Small PDFs First](project_small_files_first.md) — Restrict dev/test to PDFs ≤15–20 MB until accuracy is solid; team sourcing more small files
+- [Communication Style](feedback_communication.md) — Wants blunt, honest feedback; push back when wrong
+- [Waiting for Bluebeam Export](project_waiting_bluebeam.md) — Team preparing Bluebeam CSV for ground truth calibration
+- [Keep Repo Updated](feedback_repo_sync.md) — Commit and push to triunesolutions/hvac-takeoff-tool regularly
+- [Ignore Exhibitor Indicator Labels](feedback_exhibitor_labels.md) — YES/DEFINITELY YES in exhibitor files are unreliable, use all rows as raw seed
+- [Laptop Handoff postponed](project_laptop_handoff.md) — Submission deferred ~1 month from 2026-05-13 (~2026-06-13); datasets in GH release `datasets-2026-05-11`; open tagger fixes pending
+- [OCR Fine-Tune](project_ocr_finetune_scaffold.md) — PP-OCRv4 benchmark gate FAILED 2026-05-26: identical to EasyOCR + slower, OCR not the bottleneck → keep EasyOCR. Real blockers: schedule parsing + AD-GRD taxonomy on new corpus
+- [GRD Text-Layer Extractor](project_grd_textlayer.md) — Ported in-house 2026-06-02; honest benchmark ~5% unit-recall ceiling on retail corpus; only combined-label drawings work; rest need vision path
+- [v10 New-Corpus Benchmark](project_v10_newcorpus_benchmark.md) — 2026-06-03: median 7% on May-26 corpus; tagged%==recall, sched_tags=0 → bottleneck is schedule_parser, not detection/timeout; next fix = schedule extraction on retail plans
+- [Schedule-OCR Budget Fix](project_schedule_ocr_budget_fix.md) — 2026-06-08: fixed OCR fallback starving detection to 0 (commit 06ba375); static 40/60 budget split still wastes detection idle time — let OCR borrow it next
+- [Tag Verifier tool](reference_tag_verifier.md) — Flask review tool sent to team; lives OUTSIDE repo at Downloads\Triune\tag_verifier; shelved for now
+- [Data-Train Batch Run](project_datatrain_batch.md) — 2026-06-09: COMPLETE 157/157, 0 crashes, 85% produced xlsx. Only 14.5% tagged on TRAINING data → tagging is THE bottleneck; cliffs hard at ~7MB (small plans 90–100%, big plans ~0%). 2 cap leaks + ~7 picker misfires to fix; Kaggle GPU notebook ready
+- [WS1 Tag-Inference Push](project_ws1_tag_inference.md) — Batch DONE 157/157 (2026-06-12). CORRECTED verdict: SCHEDULE PARSER dominates (WS2=56%, OCR=31%, class-gap only 13%) — reverses the 58/157 read. WS2 is now priority 1. LAPTOP WIPED after this session; repo is source of truth (docs/ has disaggregation + memory_snapshot + SESSION_STATE handoff)
