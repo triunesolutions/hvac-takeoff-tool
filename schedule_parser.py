@@ -911,7 +911,22 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
         else:
             ocr_tb = None
         if ocr_tb is None or ocr_tb >= OCR_FALLBACK_MIN_BUDGET:
-            ocr_marks, ocr_vars = extract_marks_via_ocr(pdf_path, time_budget=ocr_tb)
+            # First try full table reconstruction (recovers per-mark PROPERTIES:
+            # manufacturer/model/CFM/size), then fall back to tags-only OCR if the
+            # table extractor can't reconstruct enough rows. The table path keeps
+            # the takeoff Excel populated instead of marks-with-blank-columns.
+            ocr_vars = []
+            try:
+                from ocr_table_extractor import extract_tables_via_ocr
+                tbl_vars, _tdbg = extract_tables_via_ocr(pdf_path, time_budget=ocr_tb)
+                if len(tbl_vars) >= OCR_FALLBACK_MIN_TAGS:
+                    ocr_vars = tbl_vars
+                    print(f"  [schedule-ocr] table reconstruction: {len(tbl_vars)} "
+                          f"marks with properties")
+            except Exception as e:
+                _dbg(f"ocr table extractor failed: {e}")
+            if not ocr_vars:
+                ocr_marks, ocr_vars = extract_marks_via_ocr(pdf_path, time_budget=ocr_tb)
         else:
             print(f"  [schedule-ocr] skipped — only {ocr_tb:.0f}s left in schedule "
                   f"budget (< {OCR_FALLBACK_MIN_BUDGET:.0f}s), preserving detection time")
@@ -924,7 +939,9 @@ def parse_pdf_schedules(pdf_path, exclude_prefixes=None, time_budget=None):
                     continue
                 existing.add(v['tag'])
                 variables.append(v)
-                mark_details.setdefault(v['tag'], {})
+                # carry reconstructed properties into mark_details so the Excel
+                # writer's _prop() lookups populate model/CFM/size columns.
+                mark_details[v['tag']] = dict(v.get('properties') or {})
             marks = sorted(existing)
 
     # Filter out excluded equipment types (e.g., VAV boxes)
