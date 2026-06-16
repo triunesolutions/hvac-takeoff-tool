@@ -311,6 +311,67 @@ def merge_split_bubbles(bubbles, max_dx=60, max_dy=80):
     return out
 
 
+import re as _re
+
+# Neck/duct size annotations next to a diffuser: "10x6", "24X24", or '8"' / "8".
+_SIZE_RE = _re.compile(r'^\d{1,2}\s*[xX]\s*\d{1,2}$')
+_INCH_RE = _re.compile(r'^\d{1,2}\s*["\']?$')
+
+
+def _clean_num(tok):
+    """OCR digit cleanup: O->0, l/I->1, S->5, B->8, o->0 inside a numeric token."""
+    return (tok.upper().replace('O', '0').replace('I', '1').replace('L', '1')
+            .replace('S', '5').replace('B', '8').replace('Z', '2'))
+
+
+def read_diffuser_annotations(img, dets, crop_size=120, conf_threshold=0.2):
+    """For each detection, read the neck/module size and CFM printed next to the
+    symbol on the plan (e.g. "10x6" + "260"). Returns a list aligned with `dets`,
+    each a dict {'neck_size': str, 'cfm': str} ('' when not found).
+
+    These per-symbol annotations are how the team records size-level detail and
+    are read far more reliably than the single mark letter. Uses one batched OCR
+    pass over all crops."""
+    h, w = img.shape[:2]
+    boxes = []
+    for det in dets:
+        cx = det.get('cx', (det.get('x1', 0) + det.get('x2', 0)) / 2)
+        cy = det.get('cy', (det.get('y1', 0) + det.get('y2', 0)) / 2)
+        boxes.append((max(0, cx - crop_size), max(0, cy - crop_size),
+                      min(w, cx + crop_size), min(h, cy + crop_size)))
+    word_lists = ocr_crops_batched(
+        img, boxes, upscale=2.0, conf_threshold=conf_threshold,
+        allowlist='0123456789xX"\'')
+    out = []
+    for det, words in zip(dets, word_lists):
+        dcx = det.get('cx', (det.get('x1', 0) + det.get('x2', 0)) / 2)
+        dcy = det.get('cy', (det.get('y1', 0) + det.get('y2', 0)) / 2)
+        neck, cfm = '', ''
+        size_word = None
+        # nearest NxN size token to the detection center
+        best_d = 1e9
+        for wd in words:
+            t = wd['text'].strip().replace(' ', '')
+            d = ((wd['cx'] - dcx) ** 2 + (wd['cy'] - dcy) ** 2) ** 0.5
+            if _SIZE_RE.match(t) and d < best_d:
+                neck, size_word, best_d = t.lower().replace('x', 'x'), wd, d
+        # CFM = a 2-4 digit number near the size (typically just below it)
+        if size_word is not None:
+            cand = None
+            cand_d = 1e9
+            for wd in words:
+                t = _clean_num(wd['text'].strip())
+                if t.isdigit() and 2 <= len(t) <= 4 and wd is not size_word:
+                    d = ((wd['cx'] - size_word['cx']) ** 2 +
+                         (wd['cy'] - size_word['cy']) ** 2) ** 0.5
+                    if d < cand_d and d < 120:
+                        cand, cand_d = t, d
+            if cand:
+                cfm = cand
+        out.append({'neck_size': neck, 'cfm': cfm})
+    return out
+
+
 def ocr_near_detection(img, det, crop_size=180, conf_threshold=0.3):
     """
     Crop a region around a detection and OCR just that crop.
