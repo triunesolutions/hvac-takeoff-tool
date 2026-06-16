@@ -16,7 +16,7 @@ Claude session) picks this up on a new machine.
 | Datasets (`tag_dataset.zip`, `yolo_dataset*.zip`, v10/v11 parts) | GH release `datasets-2026-05-11` | ✅ safe |
 | Claude memory (cross-session context) | `docs/memory_snapshot_2026-06-12/` | ✅ snapshotted into repo |
 | WS1 batch numbers (157 projects) | `docs/batch_ws1_results_2026-06-12.csv` + `..._report_2026-06-12.md` | ✅ preserved |
-| `images/` (595 MB raw training imgs), `labels.jsonl` (11 MB) | **see Open Items** | ⚠️ verify before wipe |
+| `images/` (595 MB raw training imgs), `labels.jsonl` (11 MB) | GH release `datasets-2026-06-16` (`images_labels_backup_2026-06-16.zip`) | ✅ backed up 2026-06-16 |
 
 ## Current verdict (the important part)
 
@@ -60,10 +60,9 @@ The interim 58/157 read was wrong; see the disaggregation doc for why.
 3. **Schedule-OCR cap leak (#1 runtime debt)** — the `--time-budget` does not
    bound the EasyOCR fallback render loop, so small plans burn the whole budget
    on schedule-OCR before detection runs. Still unfixed.
-4. **⚠️ Verify `images/` + `labels.jsonl` are preserved** before wiping — they
-   are untracked and not in a release as-is. They may be redundant with
-   `yolo_dataset.zip` in `datasets-2026-05-11`; confirm, or upload them to a new
-   release. (See the closing note in this session's chat.)
+4. ✅ **DONE 2026-06-16** — `images/` + `labels.jsonl` backed up to GH release
+   `datasets-2026-06-16` (`images_labels_backup_2026-06-16.zip`, 578 MB).
+   To restore: `gh release download datasets-2026-06-16 --repo triunesolutions/hvac-takeoff-tool && unzip images_labels_backup_2026-06-16.zip`.
 
 ## Conventions (carry forward)
 
