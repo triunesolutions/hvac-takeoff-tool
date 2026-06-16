@@ -144,37 +144,108 @@ def ocr_bubble_crops(img, bubbles, pad=12, upscale=3.0, conf_threshold=0.2,
     affects the read text, not positions."""
     if not bubbles:
         return bubbles
-    reader = get_ocr_reader()
-    out = []
     h, w = img.shape[:2]
-    for b in bubbles:
-        x1 = max(0, int(b['x1']) - pad)
-        y1 = max(0, int(b['y1']) - pad)
-        x2 = min(w, int(b['x2']) + pad)
-        y2 = min(h, int(b['y2']) + pad)
-        crop = img[y1:y2, x1:x2]
-        if crop.size == 0:
+    boxes = [(max(0, int(b['x1']) - pad), max(0, int(b['y1']) - pad),
+              min(w, int(b['x2']) + pad), min(h, int(b['y2']) + pad))
+             for b in bubbles]
+    # One batched OCR pass over all bubble crops instead of a readtext per crop.
+    word_lists = ocr_crops_batched(img, boxes, upscale=upscale,
+                                   conf_threshold=conf_threshold,
+                                   text_threshold=0.4, low_text=0.2)
+    out = []
+    for b, words in zip(bubbles, word_lists):
+        if not words:
             continue
-        crop, _ = preprocess_crop_for_ocr(crop, upscale=upscale, binarize=binarize)
-        try:
-            results = reader.readtext(
-                crop,
-                allowlist=_TAG_ALLOWLIST,
-                text_threshold=0.4, low_text=0.2,
-            )
-        except Exception:
-            continue
-        # Concatenate words in this single bubble (handles "CU-1" split as "CU" "-" "1")
-        toks = [(t, c) for _, t, c in results if c >= conf_threshold]
-        if not toks:
-            continue
-        text = ''.join(t for t, _ in toks).strip()
+        # Concatenate words in this single bubble (handles "CU-1" split as "CU" "-" "1"),
+        # left-to-right by x so the characters keep their order.
+        words = sorted(words, key=lambda wd: wd['cx'])
+        text = ''.join(wd['text'] for wd in words).strip()
         if not text:
             continue
         b2 = dict(b)
         b2['text'] = text
-        b2['ocr_conf'] = sum(c for _, c in toks) / len(toks)
+        b2['ocr_conf'] = sum(wd['conf'] for wd in words) / len(words)
         out.append(b2)
+    return out
+
+
+def ocr_crops_batched(img, boxes, upscale=3.0, conf_threshold=0.25,
+                      text_threshold=0.3, low_text=0.3, allowlist=None,
+                      batch_size=16, deadline=None):
+    """OCR many small crops in batched EasyOCR passes instead of one readtext
+    per crop. `boxes` is a list of (x1,y1,x2,y2) in page space; returns a list
+    aligned with `boxes`, each entry a list of word dicts (text + page-space
+    coords). Crops are upscaled + Otsu-binarized (the proven single-char prep),
+    padded to a uniform size per batch so EasyOCR can process them together.
+
+    This replaces the per-detection readtext loop that made dense plans (200+
+    detections) take tens of minutes — one batched pass per ~16 crops."""
+    import numpy as np
+    import cv2
+    reader = get_ocr_reader()
+    if allowlist is None:
+        allowlist = _TAG_ALLOWLIST
+    h, w = img.shape[:2]
+    out = [[] for _ in boxes]
+
+    # Pre-crop + preprocess; remember offset/scale per box.
+    prepped = []   # (idx, processed_bgr, scale, ox, oy) for non-empty crops
+    for idx, (x1, y1, x2, y2) in enumerate(boxes):
+        x1i, y1i = max(0, int(x1)), max(0, int(y1))
+        x2i, y2i = min(w, int(x2)), min(h, int(y2))
+        if x2i - x1i < 4 or y2i - y1i < 4:
+            continue
+        crop = img[y1i:y2i, x1i:x2i]
+        if crop.size == 0:
+            continue
+        proc, scale = preprocess_crop_for_ocr(crop, upscale=upscale, binarize=True)
+        prepped.append((idx, proc, scale, x1i, y1i))
+
+    def _run_batch(batch):
+        if not batch:
+            return
+        # Pad each crop to the batch's max H×W (top-left aligned, white bg so
+        # binarized black text stays legible) → uniform size for batched OCR.
+        maxh = max(p[1].shape[0] for p in batch)
+        maxw = max(p[1].shape[1] for p in batch)
+        imgs = []
+        for _, proc, _, _, _ in batch:
+            ph, pw = proc.shape[:2]
+            canvas = np.full((maxh, maxw, 3), 255, dtype=np.uint8)
+            canvas[:ph, :pw] = proc
+            imgs.append(canvas)
+        try:
+            results = reader.readtext_batched(
+                imgs, n_width=maxw, n_height=maxh, allowlist=allowlist,
+                text_threshold=text_threshold, low_text=low_text)
+        except Exception:
+            # Fall back to per-crop readtext if batched API misbehaves.
+            results = []
+            for canvas in imgs:
+                try:
+                    results.append(reader.readtext(
+                        canvas, allowlist=allowlist,
+                        text_threshold=text_threshold, low_text=low_text))
+                except Exception:
+                    results.append([])
+        for (idx, _proc, scale, ox, oy), res in zip(batch, results):
+            for bbox, text, conf in res:
+                if conf < conf_threshold or not str(text).strip():
+                    continue
+                xs = [p[0] / scale for p in bbox]
+                ys = [p[1] / scale for p in bbox]
+                out[idx].append({
+                    'text': str(text).strip(),
+                    'cx': (min(xs) + max(xs)) / 2 + ox,
+                    'cy': (min(ys) + max(ys)) / 2 + oy,
+                    'conf': float(conf),
+                })
+
+    import time as _time
+    for i in range(0, len(prepped), batch_size):
+        if deadline is not None and _time.time() > deadline:
+            break   # time-capped: leave remaining crops un-OCR'd (partial result)
+        _run_batch(prepped[i:i + batch_size])
     return out
 
 

@@ -608,70 +608,81 @@ def level2b_bubble_detect(detections, class_to_tags, img, max_distance=350):
                           'reclassified': reclassified}
 
 
-def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=150,
-                         max_distance=140):
+def level2b_bubble_ocr(detections, class_to_tags, img, crop_size=90,
+                         max_distance=140, max_seconds=180):
     """
     For each untagged detection in a multi-tag class, OCR a small crop around
-    it and match tokens against the valid tags for that class. Greedy 1:1
-    assignment by proximity (closest matched word to detection center wins).
+    it and match tokens against the valid tags for that class. Closest matched
+    word to the detection center wins (same tag may repeat across the plan).
 
-    Requires `img` — a BGR numpy array of the rendered page (the same image
-    used for YOLO inference, at the same DPI).
+    All crops are OCR'd in batched EasyOCR passes (one pass per ~16 crops)
+    instead of one readtext call per detection — on a 200-detection plan that is
+    the difference between ~1 minute and tens of minutes. Requires `img`, the
+    BGR page render used for YOLO inference.
     """
     if img is None or not class_to_tags:
         return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': 0}
 
-    # Import lazily — pulls in EasyOCR which is heavy
     try:
-        from tag_matcher import ocr_near_detection, match_valid_tags
+        from tag_matcher import ocr_crops_batched, match_valid_tags
     except Exception as e:
         return detections, {'level': '2b', 'method': 'bubble_ocr',
                               'tagged': 0, 'error': str(e)}
 
-    by_class = defaultdict(list)
+    # Collect untagged detections whose (resolved) class has ≥2 candidate tags,
+    # remembering each one's valid-tag list and crop box.
+    h, w = img.shape[:2]
+    work = []        # (det_index, valid_tags, (x1,y1,x2,y2))
+    valid_cache = {}
     for i, det in enumerate(detections):
         if det.get('tag'):
             continue
-        by_class[det.get('cls', '')].append(i)
+        cls = det.get('cls', '')
+        if cls not in valid_cache:
+            rc = _resolve_class(cls, class_to_tags)
+            valid_cache[cls] = (list(class_to_tags[rc].keys())
+                                if rc and len(class_to_tags[rc]) >= 2 else None)
+        valid_tags = valid_cache[cls]
+        if not valid_tags:
+            continue
+        dcx = det.get('cx', (det.get('x1', 0) + det.get('x2', 0)) / 2)
+        dcy = det.get('cy', (det.get('y1', 0) + det.get('y2', 0)) / 2)
+        box = (max(0, dcx - crop_size), max(0, dcy - crop_size),
+               min(w, dcx + crop_size), min(h, dcy + crop_size))
+        work.append((i, valid_tags, box))
+
+    if not work:
+        return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': 0}
+
+    # Tight crop + 2x upscale keeps single-char reads while cutting per-crop OCR
+    # cost ~8x vs the old 150px/3x window (the dominant runtime on dense plans).
+    # A wall-clock cap guarantees the step can't run away even with no budget.
+    import time as _time
+    deadline = _time.time() + max_seconds if max_seconds else None
+    word_lists = ocr_crops_batched(img, [b for _, _, b in work],
+                                   upscale=2.0, conf_threshold=0.25,
+                                   deadline=deadline)
 
     tagged = 0
-    for cls, det_indices in by_class.items():
-        resolved_cls = _resolve_class(cls, class_to_tags)
-        if not resolved_cls:
+    for (di, valid_tags, _box), words in zip(work, word_lists):
+        matches = match_valid_tags(words, valid_tags)
+        if not matches:
             continue
-        valid_tags = list(class_to_tags[resolved_cls].keys())
-        if len(valid_tags) < 2:
-            continue
+        det = detections[di]
+        dcx, dcy = det.get('cx', 0), det.get('cy', 0)
+        best, best_dist = None, float('inf')
+        for tag, word in matches:
+            dist = ((word['cx'] - dcx) ** 2 + (word['cy'] - dcy) ** 2) ** 0.5
+            if dist < best_dist and dist <= max_distance:
+                best_dist, best = dist, tag
+        if best is not None:
+            det['tag'] = best
+            det['tag_method'] = 'bubble_ocr'
+            det['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
+            tagged += 1
 
-        # For each detection, pick the closest matching valid tag.
-        # No 1:1 constraint — the same tag can be assigned to many detections
-        # (air devices like A1 commonly repeat across a floor plan).
-        for di in det_indices:
-            det = detections[di]
-            try:
-                words = ocr_near_detection(img, det, crop_size=crop_size,
-                                             conf_threshold=0.3)
-            except Exception:
-                continue
-            matches = match_valid_tags(words, valid_tags)
-            if not matches:
-                continue
-            dcx = det.get('cx', 0)
-            dcy = det.get('cy', 0)
-            best = None
-            best_dist = float('inf')
-            for tag, word in matches:
-                dist = ((word['cx'] - dcx) ** 2 + (word['cy'] - dcy) ** 2) ** 0.5
-                if dist < best_dist and dist <= max_distance:
-                    best_dist = dist
-                    best = tag
-            if best is not None:
-                detections[di]['tag'] = best
-                detections[di]['tag_method'] = 'bubble_ocr'
-                detections[di]['tag_confidence'] = 1.0 - min(best_dist / max_distance, 1.0)
-                tagged += 1
-
-    return detections, {'level': '2b', 'method': 'bubble_ocr', 'tagged': tagged}
+    return detections, {'level': '2b', 'method': 'bubble_ocr',
+                          'tagged': tagged, 'ocr_crops': len(work)}
 
 
 # ─── Text-layer helper (used by Level 2a fingerprint matching) ──────────────
