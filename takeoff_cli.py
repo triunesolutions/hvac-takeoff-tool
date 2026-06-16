@@ -582,6 +582,47 @@ def _prop(details, keywords):
     return ''
 
 
+def _schedule_detail_columns(details):
+    """Map a tag's schedule properties onto the takeoff's detail columns,
+    matching the team's format. Returns
+    (neck_size, module_size, duct_size, type, mounting, remark).
+
+    Sizes/mounting come straight from the schedule where present; TYPE is
+    composed to the team's '<SERVICE> DIFFUSER/GRILLE' style from the service
+    (SUPPLY/RETURN/EXHAUST) plus the device type; material + damper roll into the
+    remark. Empty strings where the schedule doesn't carry the field (e.g. neck
+    size, which is annotated per-symbol on the plan — that's the next step)."""
+    neck = _prop(details, ['NECK', 'NECK SIZE', 'SIZE (NECK)', 'INLET'])
+    module = _prop(details, ['MODULE', 'PANEL', 'FACE SIZE', 'OVERALL', 'NOMINAL'])
+    duct = _prop(details, ['DUCT', 'DUCT SIZE', 'CONNECTION', 'COLLAR'])
+    # plain 'SIZE' column → neck if neck not already found
+    if not neck:
+        neck = _prop(details, ['SIZE'])
+    device = _prop(details, ['TYPE', 'DESCRIPTION', 'STYLE'])
+    service = _prop(details, ['SERVICE', 'DUTY', 'APPLICATION'])
+    svc = service.upper()
+    cat = 'DIFFUSER' if 'DIFF' in device.upper() else (
+        'GRILLE' if ('GRILLE' in device.upper() or 'REGISTER' in device.upper())
+        else '')
+    if 'SA' in svc or 'SUPPLY' in svc:
+        etype = ('SUPPLY ' + (cat or device)).strip()
+    elif svc.startswith('RA') or 'RETURN' in svc:
+        etype = ('RETURN ' + (cat or device)).strip()
+    elif 'EXH' in svc or 'EA' in svc:
+        etype = ('EXHAUST ' + (cat or device)).strip()
+    else:
+        etype = device or service
+    mounting = _prop(details, ['MOUNTING', 'MOUNT', 'CEILING TYPE'])
+    material = _prop(details, ['MATERIAL'])
+    damper = _prop(details, ['DAMPER', 'VOLUME DAMPER', 'OBD'])
+    remark_bits = []
+    if material:
+        remark_bits.append('MATERIAL ' + material)
+    if damper and damper.upper() not in ('NO', 'N', 'NONE', '-'):
+        remark_bits.append('DAMPER ' + damper)
+    return neck, module, duct, etype, mounting, ', '.join(remark_bits)
+
+
 def _split_brand_model(combined):
     """Split a combined 'MANUFACTURER & MODEL' string into (brand, model).
 
@@ -682,9 +723,8 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
         else:
             brand = _prop(details, ['MANUFACTURER', 'BRAND', 'MAKE'])
             model = _prop(details, ['MODEL NUMBER', 'MODEL'])
-        neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
-        etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
-        mounting = _prop(details, ['MOUNTING', 'MOUNT'])
+        neck_size, module_size, duct_size, etype, mounting, remark = \
+            _schedule_detail_columns(details)
 
         ws.cell(row=row, column=1, value=cls if cls != current_cls else '')
         current_cls = cls
@@ -693,9 +733,13 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
         ws.cell(row=row, column=4, value=data['count'])
         ws.cell(row=row, column=5, value=tag)
         ws.cell(row=row, column=6, value=neck_size)
+        ws.cell(row=row, column=7, value=module_size)
+        ws.cell(row=row, column=8, value=duct_size)
         ws.cell(row=row, column=9, value=etype)
         ws.cell(row=row, column=10, value=mounting)
-        ws.cell(row=row, column=11, value=f"Pages: {', '.join(str(p) for p in sorted(data['pages']))}")
+        page_note = f"Pages: {', '.join(str(p) for p in sorted(data['pages']))}"
+        ws.cell(row=row, column=11,
+                value=(remark + ' | ' + page_note) if remark else page_note)
         total += data['count']
         row += 1
 
@@ -734,8 +778,8 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
             else:
                 brand = _prop(details, ['MANUFACTURER', 'BRAND', 'MAKE'])
                 model = _prop(details, ['MODEL NUMBER', 'MODEL'])
-            neck_size = _prop(details, ['NECK', 'SIZE (NECK)', 'SIZE'])
-            etype = _prop(details, ['SERVICE', 'TYPE', 'DESCRIPTION'])
+            neck_size, module_size, duct_size, etype, mounting, remark = \
+                _schedule_detail_columns(details)
 
             ws2.cell(row=row, column=1, value=_product_for(d['cls'], tag))
             ws2.cell(row=row, column=2, value=brand)
@@ -743,7 +787,11 @@ def write_excel(output_path, detections_per_page, project_name, schedule_details
             ws2.cell(row=row, column=4, value=1)
             ws2.cell(row=row, column=5, value=tag)
             ws2.cell(row=row, column=6, value=neck_size)
+            ws2.cell(row=row, column=7, value=module_size)
+            ws2.cell(row=row, column=8, value=duct_size)
             ws2.cell(row=row, column=9, value=etype)
+            ws2.cell(row=row, column=10, value=mounting)
+            ws2.cell(row=row, column=11, value=remark)
             row += 1
 
     ws2.column_dimensions['A'].width = 8

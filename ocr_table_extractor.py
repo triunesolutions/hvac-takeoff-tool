@@ -402,29 +402,46 @@ def _find_header_row(grid):
     return best if best_score >= 2 else None
 
 
+def _air_class_from_text(text):
+    """Map a Diffuser/Grille/Register schedule's DESCRIPTION+FRAME text into the
+    AD-GRD family (so single-letter air-device marks connect to AD-GRD
+    detections). Keyword stems are truncation-tolerant for OCR noise
+    ('DIFFUSE'/'DIFFUSER', 'GRIL', 'REGIS'). Returns None if not an air device."""
+    t = (text or '').upper()
+    is_air = any(k in t for k in (
+        'DIFFUS', 'GRIL', 'REGIS', 'GRD', 'SUPPLY', 'RETURN', 'EXHAUST')) \
+        or t.strip() in ('SA', 'RA', 'EA')
+    if not is_air:
+        return None
+    surface = 'SURFACE' in t or 'SURF' in t
+    if 'RETURN' in t or t.startswith('RA'):
+        return 'AD-SURF RETURN' if surface else 'AD-T-BAR RETURN'
+    if 'EXHAUST' in t or 'EXH' in t or t.startswith('EA'):
+        return 'AD-GRD'
+    if 'SUPPLY' in t or 'DIFFUS' in t or t.startswith('SA'):
+        return 'AD-SURF SUPPLY' if surface else 'AD-T-BAR SUPPLY'
+    return 'AD-GRD'
+
+
 def _infer_class(tag, service, mounting, duty):
-    """Best-effort YOLO class: tag prefix first, then schedule TYPE/DUTY/service.
-    Single-letter air-device marks (A/B/C) carry no prefix signal, so fall back
-    to the DUTY/TYPE column (SA=supply, RA=return, EXH=exhaust)."""
+    """Best-effort YOLO class: an explicit air-device DESCRIPTION wins for short
+    marks (a row that says "EXHAUST GRILLE" beats reading "L" as a louver
+    prefix); otherwise tag prefix, then the service-text classifier."""
+    text = ' '.join(x for x in (service, duty, mounting) if x)
+    air = _air_class_from_text(text)
+    if air and len(tag) <= 2:          # single/short marks: trust the description
+        return air
     cls = _ocr_infer_class(tag)
     if cls and cls != 'UNKNOWN':
         return cls
     try:
         from tag_inference import _infer_yolo_class_from_service
-        txt = ' '.join(x for x in (service, duty, mounting) if x)
-        c = _infer_yolo_class_from_service(txt, mounting or '')
-        if c:
+        c = _infer_yolo_class_from_service(text, mounting or '')
+        if c and c != 'UNKNOWN':
             return c
     except Exception:
         pass
-    d = (duty or '').upper()
-    if 'EXH' in d:
-        return 'AD-GRD'
-    if d.startswith('RA') or 'RETURN' in d:
-        return 'AD-T-BAR RETURN'
-    if d.startswith('SA') or 'SUPPLY' in d:
-        return 'AD-T-BAR SUPPLY'
-    return cls or 'UNKNOWN'
+    return air or cls or 'UNKNOWN'
 
 
 def _find_mark_col(header_cells):
@@ -501,20 +518,35 @@ def extract_tables_via_ocr(pdf_path, pages=None, dpi=200, time_budget=None,
 
 
 def _auto_pages(doc):
-    """Pick pages that look like vector schedule sheets: little/no text layer
-    but schedule keywords present once rendered is expensive, so use a cheap
-    proxy — pages whose text is sparse OR that contain a schedule keyword."""
-    import fitz  # noqa
+    """Pick pages that look like vector schedule sheets. A vector schedule has
+    its cell text drawn as line-art, so the text layer is near-empty — that is
+    the reliable signal. Pages WITH a real text layer are already handled by the
+    text parser, so OCR'ing them wastes minutes. An explicit override
+    (HVAC_OCR_SCHED_PAGES="8,9,10", 1-indexed) skips detection entirely — use it
+    for known sheets to avoid the blind full-document sweep.
+
+    The blind sweep over a 34-page set at full resolution was the cause of the
+    multi-minute hangs; bounding it to near-text-less pages keeps it fast."""
+    import os
+    override = os.environ.get('HVAC_OCR_SCHED_PAGES', '').strip()
+    if override:
+        idxs = []
+        for tok in override.replace(',', ' ').split():
+            try:
+                idxs.append(int(tok) - 1)
+            except ValueError:
+                pass
+        return [i for i in idxs if 0 <= i < len(doc)]
     out = []
     for i in range(len(doc)):
         txt = doc[i].get_text("text")
-        up = txt.upper()
-        sparse = len(txt) < 400
-        has_kw = any(k in up for k in _SCHED_PAGE_KW)
-        # vector schedule sheet: sparse text, OR keyword present with few words
-        if sparse or (has_kw and len(txt.split()) < 1200):
+        # near-empty text layer => the sheet's content (incl. any schedule) is
+        # vector line-art and must be OCR'd. Threshold is deliberately low so
+        # text-bearing plan/notes pages are excluded.
+        if len(txt.strip()) < 120:
             out.append(i)
-    return out
+    # Safety cap: never OCR more than 8 vector pages in the blind path.
+    return out[:8]
 
 
 def _table_to_variables(table, tokens, page_no, img=None, reader=None):
@@ -554,8 +586,13 @@ def _table_to_variables(table, tokens, page_no, img=None, reader=None):
             label = header[c] if c < len(header) and header[c] else f"COL_{c}"
             is_num = any(k in label for k in _NUMERIC_COLS)
             props[label] = _clean_value(val, numeric=is_num)
-        svc = props.get('SERVICE', '') or props.get('TYPE', '')
-        mnt = props.get('MOUNTING', '')
+        # Device/service text can live under several headers depending on the
+        # schedule (SERVICE, TYPE, or DESCRIPTION e.g. "CEILING DIFFUSER");
+        # mounting likewise under MOUNTING/FRAME/STYLE ("24x24 LAY-IN").
+        svc = (props.get('SERVICE') or props.get('TYPE')
+               or props.get('DESCRIPTION') or '')
+        mnt = (props.get('MOUNTING') or props.get('FRAME')
+               or props.get('STYLE') or '')
         duty = props.get('DUTY', '')
         for tag in tags:
             out.append({
