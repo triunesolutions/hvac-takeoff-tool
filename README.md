@@ -6,6 +6,19 @@ Excel takeoff (Bill of Materials), an annotated PDF, and JSON sidecars.
 Input: a multi-page blueprint PDF →
 **schedule parse → mechanical-page filter → YOLO equipment detection → 3-level tag inference → Excel/PDF/JSON output.**
 
+## Related Repositories
+
+Part of the Triune HVAC takeoff effort. Full map for picking this up on a new machine:
+
+| Repo / branch | What it is |
+|---|---|
+| [hvac-takeoff-tool `master`](https://github.com/triunesolutions/hvac-takeoff-tool) | **(this repo)** Canonical research-grade pipeline: v10 YOLO, schedule parser, 3-level tag inference, benchmark harness. |
+| [hvac-takeoff-tool `accuracy-standalone`](https://github.com/triunesolutions/hvac-takeoff-tool/tree/accuracy-standalone) | Accuracy-only build — Micah's 4 accuracy layers + OCR schedule fallback + enrichment, **no** SaaS/Bluebeam/training. Active accuracy work lives here. |
+| [MMicah-Git/triune](https://github.com/MMicah-Git/triune) | Micah's productized fork: SaaS web app + v14 model + Bluebeam pipeline. Separate account (read-only to us). |
+| [mandeeps1nghh/triunebackup](https://github.com/mandeeps1nghh/triunebackup) | Automated daily snapshots of the working tree. Recovery point, not a dev line. |
+
+**Canonical:** `triunesolutions/hvac-takeoff-tool` — `master` (research) + `accuracy-standalone` (accuracy build). Micah's fork is ahead on productization; the accuracy build takes only his accuracy code.
+
 ## Quick start
 
 ```bash
