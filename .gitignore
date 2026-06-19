@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+# scratch / diagnostics
+pent_*_out/
+*.png
+# per-run outputs
+*_takeoff/
+out_*/
+*_detections.json
+*_variables.json
+*_reconciliation.*
+*_line_items.json
